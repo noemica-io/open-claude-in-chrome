@@ -160,40 +160,42 @@ function processLine(line) {
 }
 
 const tcpServer = net.createServer((socket) => {
-  let buffer = Buffer.alloc(0);
+  // Classification: wait briefly for a client_hello. If none arrives, treat as native host.
+  // Native hosts (launched by the browser) don't send data immediately on connect.
+  // Client MCP servers send client_hello immediately.
+  let classified = false;
+  let earlyBuffer = Buffer.alloc(0);
 
-  socket.once("data", (firstChunk) => {
-    // Peek at first message to determine if this is a native host or a client MCP server
-    buffer = Buffer.concat([buffer, firstChunk]);
-    const newlineIdx = buffer.indexOf(10);
-    if (newlineIdx === -1) {
-      // Haven't received a full line yet, buffer and wait
-      socket.once("data", (more) => {
-        buffer = Buffer.concat([buffer, more]);
-        classifyAndHandle();
-      });
-      return;
+  const classifyTimeout = setTimeout(() => {
+    if (!classified) {
+      classified = true;
+      setupNativeHostConnection(socket, earlyBuffer);
     }
-    classifyAndHandle();
+  }, 500); // 500ms is plenty for a local client_hello
 
-    function classifyAndHandle() {
-      const firstLineEnd = buffer.indexOf(10);
-      if (firstLineEnd === -1) return;
-      const firstLine = buffer.subarray(0, firstLineEnd).toString("utf-8").trim();
-      try {
-        const firstMsg = JSON.parse(firstLine);
-        if (firstMsg.type === "client_hello") {
-          // This is a client MCP server
-          setupClientConnection(socket, buffer.subarray(firstLineEnd + 1));
-        } else {
-          // This is a native host (sends heartbeats or tool_responses)
-          setupNativeHostConnection(socket, buffer);
-        }
-      } catch {
-        // Can't parse, treat as native host
-        setupNativeHostConnection(socket, buffer);
+  socket.on("data", function onEarlyData(chunk) {
+    if (classified) return; // Already classified, data handler was replaced
+    earlyBuffer = Buffer.concat([earlyBuffer, chunk]);
+    const newlineIdx = earlyBuffer.indexOf(10);
+    if (newlineIdx === -1) return; // No full line yet, keep buffering
+
+    const firstLine = earlyBuffer.subarray(0, newlineIdx).toString("utf-8").trim();
+    try {
+      const firstMsg = JSON.parse(firstLine);
+      if (firstMsg.type === "client_hello") {
+        classified = true;
+        clearTimeout(classifyTimeout);
+        socket.removeListener("data", onEarlyData);
+        setupClientConnection(socket, earlyBuffer.subarray(newlineIdx + 1));
+        return;
       }
-    }
+    } catch {}
+
+    // Got data but it's not a client_hello, this is a native host
+    classified = true;
+    clearTimeout(classifyTimeout);
+    socket.removeListener("data", onEarlyData);
+    setupNativeHostConnection(socket, earlyBuffer);
   });
 });
 
