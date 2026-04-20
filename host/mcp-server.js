@@ -434,9 +434,14 @@ async function callTool(toolName, args) {
     if (result && result.content) {
       for (const part of result.content) {
         if (part.type === "image" && part.data) {
-          const tmpFile = path.join(os.tmpdir(), `screenshot_${Date.now()}.jpg`);
-          fs.writeFileSync(tmpFile, Buffer.from(part.data, "base64"));
-          result.content.push({ type: "text", text: `Screenshot saved: ${tmpFile}` });
+          try {
+            const ext = part.mimeType === "image/png" ? ".png" : ".jpg";
+            const dir = path.join(os.tmpdir(), "open-claude-in-chrome");
+            fs.mkdirSync(dir, { recursive: true });
+            const tmpFile = path.join(dir, `screenshot_${Date.now()}${ext}`);
+            fs.writeFileSync(tmpFile, Buffer.from(part.data, "base64"));
+            result.content.push({ type: "text", text: `Screenshot saved: ${tmpFile}` });
+          } catch {}
           break;
         }
       }
