@@ -431,7 +431,17 @@ async function callTool(toolName, args) {
   try {
     const result = await sendToExtension(toolName, args);
     if (typeof result === "string") return textResult(result);
-    if (result && result.content) return result;
+    if (result && result.content) {
+      for (const part of result.content) {
+        if (part.type === "image" && part.data) {
+          const tmpFile = path.join(os.tmpdir(), `screenshot_${Date.now()}.jpg`);
+          fs.writeFileSync(tmpFile, Buffer.from(part.data, "base64"));
+          result.content.push({ type: "text", text: `Screenshot saved: ${tmpFile}` });
+          break;
+        }
+      }
+      return result;
+    }
     return textResult(JSON.stringify(result, null, 2));
   } catch (err) {
     return textResult(`Error: ${err.message}`);
