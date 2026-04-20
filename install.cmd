@@ -13,12 +13,12 @@ if "%~1"=="" (
     echo Each browser assigns a different ID to the same unpacked extension.
     echo.
     echo Steps:
-    echo   1. Open chrome://extensions ^(and/or edge://extensions^)
+    echo   1. Open chrome://extensions, edge://extensions, and/or brave://extensions
     echo   2. Enable Developer Mode
     echo   3. Click 'Load unpacked' and select the extension\ directory
     echo   4. Copy the extension ID shown under the extension name
     echo   5. Repeat for each browser
-    echo   6. Run: install.cmd ^<chrome-id^> ^<edge-id^>
+    echo   6. Run: install.cmd ^<chrome-id^> ^<edge-id^> ^<brave-id^>
     exit /b 1
 )
 
@@ -42,6 +42,11 @@ if not exist "%HOST_DIR%\node_modules" (
     echo Installing npm dependencies...
     pushd "%HOST_DIR%"
     call npm install
+    if errorlevel 1 (
+        echo Error: npm install failed.
+        popd
+        exit /b 1
+    )
     popd
 )
 
