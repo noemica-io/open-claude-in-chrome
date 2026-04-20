@@ -94,16 +94,31 @@ echo.
 echo Installing native messaging host for browsers...
 
 REM Register for Chrome
-reg add "HKCU\Software\Google\Chrome\NativeMessagingHosts\%HOST_NAME%" /ve /d "%MANIFEST_PATH%" /f >nul 2>nul
-echo   Registered for Google Chrome
+if exist "%ProgramFiles%\Google\Chrome\Application\chrome.exe" (
+    reg add "HKCU\Software\Google\Chrome\NativeMessagingHosts\%HOST_NAME%" /ve /d "%MANIFEST_PATH%" /f >nul 2>nul
+    echo   Registered for Google Chrome
+) else (
+    echo   Skipping Google Chrome ^(not installed^)
+)
 
 REM Register for Edge
-reg add "HKCU\Software\Microsoft\Edge\NativeMessagingHosts\%HOST_NAME%" /ve /d "%MANIFEST_PATH%" /f >nul 2>nul
-echo   Registered for Microsoft Edge
+if exist "%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe" (
+    reg add "HKCU\Software\Microsoft\Edge\NativeMessagingHosts\%HOST_NAME%" /ve /d "%MANIFEST_PATH%" /f >nul 2>nul
+    echo   Registered for Microsoft Edge
+) else if exist "%ProgramFiles%\Microsoft\Edge\Application\msedge.exe" (
+    reg add "HKCU\Software\Microsoft\Edge\NativeMessagingHosts\%HOST_NAME%" /ve /d "%MANIFEST_PATH%" /f >nul 2>nul
+    echo   Registered for Microsoft Edge
+) else (
+    echo   Skipping Microsoft Edge ^(not installed^)
+)
 
 REM Register for Brave
-reg add "HKCU\Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\%HOST_NAME%" /ve /d "%MANIFEST_PATH%" /f >nul 2>nul
-echo   Registered for Brave Browser
+if exist "%ProgramFiles%\BraveSoftware\Brave-Browser\Application\brave.exe" (
+    reg add "HKCU\Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\%HOST_NAME%" /ve /d "%MANIFEST_PATH%" /f >nul 2>nul
+    echo   Registered for Brave Browser
+) else (
+    echo   Skipping Brave Browser ^(not installed^)
+)
 
 echo.
 echo Done! Next steps:
