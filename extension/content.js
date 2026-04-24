@@ -415,6 +415,18 @@
     };
   }
 
+  function scrollToRef(refId) {
+    const el = resolveRef(refId);
+    if (!el) return { error: `Element ${refId} not found or was garbage collected.` };
+    el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+    const rect = el.getBoundingClientRect();
+    return {
+      success: true,
+      x: Math.round(rect.x + rect.width / 2),
+      y: Math.round(rect.y + rect.height / 2),
+    };
+  }
+
   // --- Message handler ---
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === "generateAccessibilityTree") {
@@ -447,6 +459,12 @@
       return true;
     }
 
+    if (msg.type === "scrollToRef") {
+      const result = scrollToRef(msg.ref);
+      sendResponse({ result });
+      return true;
+    }
+
     return false;
   });
 
@@ -457,6 +475,7 @@
     findElements,
     setFormValue,
     getRefCoordinates,
+    scrollToRef,
     resolveRef,
     elementMap,
   };

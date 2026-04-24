@@ -16,6 +16,7 @@ const attachedTabs = new Map(); // tabId -> { enabledDomains: Set }
 const consoleMessages = new Map(); // tabId -> [{level, text, timestamp, url}]
 const networkRequests = new Map(); // tabId -> [{url, method, status, type, timestamp}]
 const screenshotStore = new Map(); // imageId -> base64
+const tabOrigins = new Map(); // tabId -> origin
 
 // --- Keep-alive alarm ---
 chrome.alarms.create("keepalive", { periodInMinutes: 0.4 });
@@ -38,12 +39,15 @@ function connectNativeHost() {
     });
 
     nativePort.onDisconnect.addListener(() => {
-      const err = chrome.runtime.lastError;
+      if (chrome.runtime.lastError) {
+        console.warn("Native host disconnected:", chrome.runtime.lastError.message);
+      }
       nativePort = null;
       // Retry in 2 seconds
       setTimeout(connectNativeHost, 2000);
     });
   } catch (e) {
+    console.warn("Native host connection failed:", e?.message || String(e));
     nativePort = null;
     setTimeout(connectNativeHost, 2000);
   }
@@ -181,6 +185,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   }
   consoleMessages.delete(tabId);
   networkRequests.delete(tabId);
+  tabOrigins.delete(tabId);
 });
 
 // Handle user dismissing debugger bar
@@ -289,16 +294,19 @@ function parseModifierString(modStr) {
 async function sendContentMessage(tabId, message) {
   try {
     const response = await chrome.tabs.sendMessage(tabId, message);
-    return response;
-  } catch {
-    // Content script might not be injected yet, try injecting
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      files: ["content.js"],
-    });
-    // Retry
-    return chrome.tabs.sendMessage(tabId, message);
+    if (response !== undefined) return response;
+  } catch {}
+
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ["content.js"],
+  });
+
+  const retry = await chrome.tabs.sendMessage(tabId, message);
+  if (retry === undefined) {
+    throw new Error(`No response from content script for message type: ${message.type}`);
   }
+  return retry;
 }
 
 // --- Resolve ref to coordinates ---
@@ -309,10 +317,70 @@ async function resolveRefToCoordinates(tabId, ref) {
 }
 
 // --- Screenshot helper ---
-// Cap viewport to 1280x800 for screenshots to keep size manageable.
-// Retina displays produce 2x+ resolution PNGs that blow up base64 size.
-const MAX_SCREENSHOT_WIDTH = 1280;
-const MAX_SCREENSHOT_HEIGHT = 800;
+function getOrigin(url) {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
+
+function clearTabTelemetry(tabId) {
+  consoleMessages.set(tabId, []);
+  networkRequests.set(tabId, []);
+}
+
+function maybeResetTelemetryForTab(tabId, nextUrl) {
+  const nextOrigin = getOrigin(nextUrl);
+  const prevOrigin = tabOrigins.get(tabId) || null;
+  if (nextOrigin && prevOrigin && nextOrigin !== prevOrigin) {
+    clearTabTelemetry(tabId);
+  }
+  if (nextOrigin) tabOrigins.set(tabId, nextOrigin);
+}
+
+async function waitForTabReady(tabId, expectedUrl = null, timeoutMs = 12000) {
+  return new Promise((resolve) => {
+    let settled = false;
+    let settleTimer = null;
+
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      chrome.tabs.onUpdated.removeListener(listener);
+      if (settleTimer) clearTimeout(settleTimer);
+      resolve();
+    };
+
+    const armSettle = (delay = 400) => {
+      if (settleTimer) clearTimeout(settleTimer);
+      settleTimer = setTimeout(finish, delay);
+    };
+
+    const listener = (updatedTabId, info, tab) => {
+      if (updatedTabId !== tabId) return;
+      if (info.url) maybeResetTelemetryForTab(tabId, info.url);
+
+      const urlMatches = !expectedUrl || !tab?.url || tab.url === expectedUrl;
+      if (info.status === "complete" && urlMatches) {
+        armSettle(300);
+        return;
+      }
+      if (info.url && expectedUrl && info.url === expectedUrl) {
+        armSettle(800);
+      }
+    };
+
+    chrome.tabs.onUpdated.addListener(listener);
+    setTimeout(finish, timeoutMs);
+    chrome.tabs.get(tabId).then((tab) => {
+      if (tab?.url) maybeResetTelemetryForTab(tabId, tab.url);
+      if (tab?.status === "complete" && (!expectedUrl || tab.url === expectedUrl)) {
+        armSettle(0);
+      }
+    }).catch(() => {});
+  });
+}
 
 async function takeScreenshot(tabId) {
   await ensureAttached(tabId);
@@ -322,17 +390,17 @@ async function takeScreenshot(tabId) {
   // used by Input.dispatchMouseEvent. No scaling tricks needed.
   const result = await cdp(tabId, "Page.captureScreenshot", {
     format: "jpeg",
-    quality: 55,
+    quality: 45,
     optimizeForSpeed: true,
     captureBeyondViewport: false,
   });
   let base64 = result.data;
 
-  // If still too large (>500KB base64 ≈ ~375KB binary), reduce quality further
-  if (base64.length > 500000) {
+  // If still very large, re-capture once at lower quality
+  if (base64.length > 800000) {
     const smaller = await cdp(tabId, "Page.captureScreenshot", {
       format: "jpeg",
-      quality: 30,
+      quality: 25,
       optimizeForSpeed: true,
       captureBeyondViewport: false,
     });
@@ -378,6 +446,20 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function getVirtualKeyCode(key) {
+  if (!key) return 0;
+  const special = {
+    Enter: 13, Tab: 9, Escape: 27, Backspace: 8, Delete: 46, Space: 32,
+    ArrowUp: 38, ArrowDown: 40, ArrowLeft: 37, ArrowRight: 39,
+    Home: 36, End: 35, PageUp: 33, PageDown: 34,
+    F1: 112, F2: 113, F3: 114, F4: 115, F5: 116, F6: 117,
+    F7: 118, F8: 119, F9: 120, F10: 121, F11: 122, F12: 123,
+  };
+  if (special[key]) return special[key];
+  if (key.length === 1) return key.toUpperCase().charCodeAt(0);
+  return 0;
+}
+
 // --- Tool handlers ---
 const toolHandlers = {
   async tabs_context_mcp(args) {
@@ -407,9 +489,13 @@ const toolHandlers = {
     if (!(await isInGroup(tabId))) return { content: [{ type: "text", text: `Tab ${tabId} is not in the MCP group.` }] };
 
     if (url === "back") {
+      clearTabTelemetry(tabId);
       await chrome.tabs.goBack(tabId);
+      await waitForTabReady(tabId);
     } else if (url === "forward") {
+      clearTabTelemetry(tabId);
       await chrome.tabs.goForward(tabId);
+      await waitForTabReady(tabId);
     } else {
       let targetUrl = url;
       // Strip any malformed protocol prefix before normalizing
@@ -423,27 +509,13 @@ const toolHandlers = {
       } catch {
         return { content: [{ type: "text", text: `Invalid URL: "${url}". Could not parse as a valid URL.` }] };
       }
+      clearTabTelemetry(tabId);
       await chrome.tabs.update(tabId, { url: targetUrl });
+      await waitForTabReady(tabId, targetUrl);
     }
 
-    // Wait for page load — short timeout to avoid service worker idle kill
-    // If the page takes longer, the caller can use screenshot/wait to check
-    await new Promise((resolve) => {
-      const listener = (updatedTabId, info) => {
-        if (updatedTabId === tabId && info.status === "complete") {
-          chrome.tabs.onUpdated.removeListener(listener);
-          resolve();
-        }
-      };
-      chrome.tabs.onUpdated.addListener(listener);
-      // 10s max — enough for most pages, avoids service worker timeout
-      setTimeout(() => {
-        chrome.tabs.onUpdated.removeListener(listener);
-        resolve();
-      }, 10000);
-    });
-
     const tab = await chrome.tabs.get(tabId);
+    if (tab?.url) maybeResetTelemetryForTab(tabId, tab.url);
     const tabs = await chrome.tabs.query({ groupId: tabGroupId });
     const loading = tab.status !== "complete" ? " (still loading)" : "";
     const text = `Navigated to ${tab.url}${loading}.\n## Pages\n` +
@@ -519,10 +591,13 @@ const toolHandlers = {
       case "type": {
         if (!args.text) return { content: [{ type: "text", text: "text is required for type action" }] };
         await ensureAttached(tabId);
-        // Type character by character for better compatibility
-        for (const char of args.text) {
-          await cdp(tabId, "Input.insertText", { text: char });
-          await sleep(10);
+        try {
+          await cdp(tabId, "Input.insertText", { text: args.text });
+        } catch {
+          for (const char of args.text) {
+            await cdp(tabId, "Input.insertText", { text: char });
+            await sleep(5);
+          }
         }
         return { content: [{ type: "text", text: `Typed "${args.text.substring(0, 50)}${args.text.length > 50 ? "..." : ""}"` }] };
       }
@@ -542,7 +617,7 @@ const toolHandlers = {
               key: resolvedKey,
               code: resolvedKey.length === 1 ? `Key${resolvedKey.toUpperCase()}` : resolvedKey,
               modifiers: keyMod,
-              windowsVirtualKeyCode: resolvedKey.charCodeAt ? resolvedKey.charCodeAt(0) : 0,
+              windowsVirtualKeyCode: getVirtualKeyCode(resolvedKey),
             });
             await cdp(tabId, "Input.dispatchKeyEvent", {
               type: "keyUp",
@@ -583,10 +658,16 @@ const toolHandlers = {
       case "scroll_to": {
         if (!coordinate && !args.ref) return { content: [{ type: "text", text: "coordinate or ref is required for scroll_to" }] };
         if (args.ref) {
-          await sendContentMessage(tabId, {
+          const resp = await sendContentMessage(tabId, {
             type: "scrollToRef",
             ref: args.ref,
           });
+          if (resp?.result?.error) {
+            return { content: [{ type: "text", text: `Error: ${resp.result.error}` }] };
+          }
+          if (!coordinate && resp?.result?.success) {
+            coordinate = [resp.result.x, resp.result.y];
+          }
         }
         // Scroll target element into view via JS
         if (coordinate) {
@@ -636,7 +717,7 @@ const toolHandlers = {
         return {
           content: [
             { type: "text", text: `Zoom region: [${args.region.join(", ")}]` },
-            { type: "image", data: fullBase64, mimeType: "image/png" },
+            { type: "image", data: fullBase64, mimeType: "image/jpeg" },
           ],
         };
       }
@@ -917,6 +998,12 @@ async function handleToolRequest(id, tool, args) {
     sendError(id, `${tool} failed: ${err.message}`);
   }
 }
+
+// Track origin changes so console/network buffers stay relevant
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  const nextUrl = changeInfo.url || tab?.url;
+  if (nextUrl) maybeResetTelemetryForTab(tabId, nextUrl);
+});
 
 // --- Init ---
 
