@@ -420,7 +420,9 @@ function textResult(text) {
 }
 
 function imageResult(base64, mimeType = "image/png") {
-  return { content: [{ type: "image", data: base64, mimeType }] };
+  const saved = saveImage(base64, mimeType);
+  if (saved) return textResult(`Image saved: ${saved}`);
+  return textResult("Image capture succeeded, but saving the image failed.");
 }
 
 function mixedResult(parts) {
@@ -432,24 +434,38 @@ async function callTool(toolName, args) {
     const result = await sendToExtension(toolName, args);
     if (typeof result === "string") return textResult(result);
     if (result && result.content) {
+      const content = [];
       for (const part of result.content) {
         if (part.type === "image" && part.data) {
-          try {
-            const ext = part.mimeType === "image/png" ? ".png" : ".jpg";
-            const dir = path.join(os.tmpdir(), "open-claude-in-chrome");
-            fs.mkdirSync(dir, { recursive: true });
-            const tmpFile = path.join(dir, `screenshot_${Date.now()}${ext}`);
-            fs.writeFileSync(tmpFile, Buffer.from(part.data, "base64"));
-            result.content.push({ type: "text", text: `Screenshot saved: ${tmpFile}` });
-          } catch {}
-          break;
+          const saved = saveImage(part.data, part.mimeType);
+          content.push({
+            type: "text",
+            text: saved
+              ? `Screenshot saved: ${saved}`
+              : "Screenshot captured, but saving the image failed.",
+          });
+          continue;
         }
+        content.push(part);
       }
-      return result;
+      return { ...result, content };
     }
     return textResult(JSON.stringify(result, null, 2));
   } catch (err) {
     return textResult(`Error: ${err.message}`);
+  }
+}
+
+function saveImage(base64, mimeType = "image/png") {
+  try {
+    const ext = mimeType === "image/png" ? ".png" : ".jpg";
+    const dir = path.join(os.tmpdir(), "open-claude-in-chrome");
+    fs.mkdirSync(dir, { recursive: true });
+    const tmpFile = path.join(dir, `screenshot_${Date.now()}${ext}`);
+    fs.writeFileSync(tmpFile, Buffer.from(base64, "base64"));
+    return tmpFile;
+  } catch {
+    return null;
   }
 }
 
