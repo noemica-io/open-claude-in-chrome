@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/noemica-io-open-claude-in-chrome-badge.png)](https://mseep.ai/app/noemica-io-open-claude-in-chrome)
+
 # Open Claude in Chrome
 
 **Claude in Chrome, fully open source. No domain blocklist. Any Chromium browser.**
