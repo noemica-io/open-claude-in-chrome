@@ -1,12 +1,39 @@
-# Open Claude in Chrome
+<p align="center">
+  <img src="extension/icons/icon128.png" width="96" alt="Open Claude in Chrome">
+</p>
 
-**Claude in Chrome, fully open source. No domain blocklist. Any Chromium browser.**
+<h1 align="center">Open Claude in Chrome</h1>
 
-The official [Claude in Chrome](https://code.claude.com/docs/en/chrome) extension gives Claude Code full browser automation. Open Claude in Chrome is a clean-room reimplementation that removes the restrictions while maintaining 100% feature and performance parity.
+<p align="center">
+  <em>Official Claude in Chrome gives you 58 blocked domains and two browsers.<br/>
+  <strong>Open Claude in Chrome gives you the whole web.</strong></em>
+  <br/>
+  <sub>Clean-room reimplementation of Anthropic's browser extension. No blocklist. Any Chromium browser. 100% feature &amp; performance parity.</sub>
+  <br/>
+  <sub>by <a href="https://noemica.io">noemica</a></sub>
+</p>
 
-[![Demo](https://img.youtube.com/vi/n4-2fjOsGhw/maxresdefault.jpg)](https://youtu.be/n4-2fjOsGhw)
+<p align="center">
+  <a href="#whats-different">What's different</a> ·
+  <a href="#installation">Install</a> ·
+  <a href="#architecture">Architecture</a> ·
+  <a href="https://youtu.be/n4-2fjOsGhw">Demo</a> ·
+  <a href="https://www.noemica.io/blog/reverse-engineered-claude-in-chrome">How I built it</a>
+</p>
 
-> **Demo:** [Watch Claude on Tinder, Reddit, and Robinhood](https://youtu.be/n4-2fjOsGhw) | **Deep dive:** [How I reverse-engineered it](https://www.noemica.io/blog/reverse-engineered-claude-in-chrome)
+---
+
+<p align="center">
+  <a href="https://youtu.be/n4-2fjOsGhw">
+    <img src="https://img.youtube.com/vi/n4-2fjOsGhw/maxresdefault.jpg" alt="Demo — Claude on Tinder, Reddit, and Robinhood" width="820"/>
+  </a>
+  <br/>
+  <sub><em>Watch Claude navigate Tinder, Reddit, and Robinhood — sites the official extension can't reach.</em></sub>
+</p>
+
+---
+
+The official [Claude in Chrome](https://code.claude.com/docs/en/chrome) extension gives Claude Code full browser automation — as long as you stay within Anthropic's allowlist of "safe" sites. Open Claude in Chrome is a clean-room reimplementation that strips the restrictions while keeping all 18 MCP tools and matching the official extension's performance.
 
 ## What's Different
 
