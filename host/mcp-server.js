@@ -20,17 +20,23 @@ import { z } from "zod";
 
 const DEFAULT_PORT = 18765;
 
-function getPort() {
+function readConfig() {
   const configPath = path.join(os.homedir(), ".config", "open-claude-in-chrome", "config.json");
   try {
-    const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-    return config.port || DEFAULT_PORT;
+    return JSON.parse(fs.readFileSync(configPath, "utf-8"));
   } catch {
-    return DEFAULT_PORT;
+    return {};
   }
 }
 
+function getPort() {
+  const config = readConfig();
+  return config.port || DEFAULT_PORT;
+}
+
 const TCP_PORT = getPort();
+const DEFAULT_DEVICE_ID = readConfig().deviceId || null;
+let autoSelectSent = false;
 
 // --- Mode detection ---
 // Try to bind the port. If it's taken, switch to client mode.
@@ -248,6 +254,15 @@ function setupNativeHostConnection(socket, initialBuffer) {
       }, 5000);
     }
   });
+
+  // Auto-select browser if a default deviceId is configured
+  if (!autoSelectSent && DEFAULT_DEVICE_ID) {
+    autoSelectSent = true;
+    process.stderr.write(`Auto-selecting browser: ${DEFAULT_DEVICE_ID}\n`);
+    sendToExtension("select_browser", { deviceId: DEFAULT_DEVICE_ID })
+      .then(() => process.stderr.write("Browser auto-selected successfully.\n"))
+      .catch((err) => process.stderr.write(`Auto-select browser failed: ${err.message}\n`));
+  }
 }
 
 function setupClientConnection(socket, initialBuffer) {
