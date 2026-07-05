@@ -1,5 +1,7 @@
 node_modules/
 host/native-host-wrapper.sh
+host/native-host-wrapper.bat
+host/com.anthropic.open_claude_in_chrome.json
 .env
 *.log
 .DS_Store

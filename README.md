@@ -99,14 +99,32 @@ cd ..
 
 ### Step 3: Register native messaging
 
+**macOS / Linux:**
+
 ```bash
 ./install.sh <your-extension-id>
 ```
 
-If you use multiple browsers, pass all IDs:
+**Windows (PowerShell):**
+
+```powershell
+.\install-windows.ps1 <your-extension-id>
+```
+
+The Windows script registers the host under `HKCU` (per-user, no admin required) for
+Chrome, Edge, Brave, and Chromium. If PowerShell blocks the script, allow it for the
+current session only:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+```
+
+If you use multiple browsers, pass all IDs (each browser assigns a different ID to the
+same unpacked extension):
 
 ```bash
-./install.sh <chrome-id> <brave-id> <arc-id>
+./install.sh <chrome-id> <brave-id> <arc-id>       # macOS / Linux
+.\install-windows.ps1 <chrome-id> <edge-id>        # Windows
 ```
 
 ### Step 4: Restart your browser
@@ -122,7 +140,13 @@ claude mcp add open-claude-in-chrome -- node /absolute/path/to/host/mcp-server.j
 Find the absolute path with:
 
 ```bash
-echo "node $(pwd)/host/mcp-server.js"
+echo "node $(pwd)/host/mcp-server.js"        # macOS / Linux
+```
+
+On Windows, `install-windows.ps1` prints the exact command to run when it finishes, e.g.:
+
+```powershell
+claude mcp add open-claude-in-chrome -- node C:\path\to\host\mcp-server.js
 ```
 
 ## Verification
@@ -212,6 +236,13 @@ pkill -f "node.*mcp-server"
    - **Chrome (macOS)**: `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.anthropic.open_claude_in_chrome.json`
    - **Brave (macOS)**: `~/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts/com.anthropic.open_claude_in_chrome.json`
    - **Edge (macOS)**: `~/Library/Application Support/Microsoft Edge/NativeMessagingHosts/com.anthropic.open_claude_in_chrome.json`
+   - **Windows**: the manifest lives at `host\com.anthropic.open_claude_in_chrome.json` and is
+     referenced by a registry value. Verify it with:
+     ```powershell
+     Get-ItemProperty 'HKCU:\Software\Google\Chrome\NativeMessagingHosts\com.anthropic.open_claude_in_chrome'
+     ```
+     (swap `Google\Chrome` for `Microsoft\Edge` or `BraveSoftware\Brave-Browser` as needed). Re-run
+     `.\install-windows.ps1 <extension-id>` if it is missing.
 
 ### MCP server not found
 
@@ -225,7 +256,7 @@ claude mcp add open-claude-in-chrome -- node /absolute/path/to/host/mcp-server.j
 The MCP server started but the native host hasn't connected. Try:
 1. Open any webpage (wakes the service worker)
 2. Check service worker logs: `chrome://extensions` > "Inspect views: service worker"
-3. Verify `host/native-host-wrapper.sh` exists
+3. Verify the host wrapper exists — `host/native-host-wrapper.sh` (macOS/Linux) or `host\native-host-wrapper.bat` (Windows)
 
 ### Tools fail immediately after reconnect
 
