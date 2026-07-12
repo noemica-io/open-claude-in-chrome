@@ -153,7 +153,7 @@ All 18 tools, identical to Claude in Chrome:
 | `read_console_messages` | Console output (filtered) |
 | `read_network_requests` | Network activity |
 | `resize_window` | Resize browser window |
-| `upload_image` | Upload screenshot to file input |
+| `upload_image` | Upload screenshot to file input (stub) |
 | `gif_creator` | GIF recording (stub) |
 | `shortcuts_list` | List shortcuts (stub) |
 | `shortcuts_execute` | Run shortcut (stub) |

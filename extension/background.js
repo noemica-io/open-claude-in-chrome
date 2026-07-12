@@ -220,22 +220,33 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
 
   if (method === "Network.responseReceived" && params.response) {
     const reqs = networkRequests.get(tabId) || [];
-    reqs.push({
-      url: params.response.url,
-      method: params.response.requestHeaders ? "?" : "GET",
-      status: params.response.status,
-      statusText: params.response.statusText,
-      type: params.type || "Other",
-      mimeType: params.response.mimeType,
-      timestamp: Date.now(),
-    });
-    if (reqs.length > 1000) reqs.splice(0, reqs.length - 1000);
-    networkRequests.set(tabId, reqs);
+    // Fill in the response on the request we already logged (matched by
+    // requestId) instead of appending a second entry with a guessed method.
+    const entry = reqs.find((r) => r.requestId === params.requestId);
+    if (entry) {
+      entry.status = params.response.status;
+      entry.statusText = params.response.statusText;
+      entry.mimeType = params.response.mimeType;
+    } else {
+      reqs.push({
+        requestId: params.requestId,
+        url: params.response.url,
+        method: "",
+        status: params.response.status,
+        statusText: params.response.statusText,
+        type: params.type || "Other",
+        mimeType: params.response.mimeType,
+        timestamp: Date.now(),
+      });
+      if (reqs.length > 1000) reqs.splice(0, reqs.length - 1000);
+      networkRequests.set(tabId, reqs);
+    }
   }
 
   if (method === "Network.requestWillBeSent" && params.request) {
     const reqs = networkRequests.get(tabId) || [];
     reqs.push({
+      requestId: params.requestId,
       url: params.request.url,
       method: params.request.method,
       status: 0,
@@ -630,13 +641,13 @@ const toolHandlers = {
         if (!args.region || args.region.length !== 4) {
           return { content: [{ type: "text", text: "region [x0, y0, x1, y1] is required for zoom" }] };
         }
-        // Capture full screenshot then crop region
+        // Return the full screenshot with the region noted; the caller can crop
+        // to it. Screenshots are JPEG (see takeScreenshot), so label them as such.
         const { base64: fullBase64 } = await takeScreenshot(tabId);
-        // Return the full screenshot with region info — client can crop
         return {
           content: [
             { type: "text", text: `Zoom region: [${args.region.join(", ")}]` },
-            { type: "image", data: fullBase64, mimeType: "image/png" },
+            { type: "image", data: fullBase64, mimeType: "image/jpeg" },
           ],
         };
       }
@@ -835,44 +846,11 @@ const toolHandlers = {
   },
 
   async upload_image(args) {
-    const { imageId, tabId, ref, coordinate, filename = "image.png" } = args;
-    if (!(await isInGroup(tabId))) return { content: [{ type: "text", text: `Tab ${tabId} is not in the MCP group.` }] };
-
-    const base64 = screenshotStore.get(imageId);
-    if (!base64) {
-      return { content: [{ type: "text", text: `Image ${imageId} not found. Take a screenshot first.` }] };
-    }
-
-    // Use CDP to set file input
-    if (ref) {
-      // Find the element and set its files via CDP
-      await ensureAttached(tabId);
-      const result = await cdp(tabId, "Runtime.evaluate", {
-        expression: `(() => {
-          const el = window.__unblockedChrome?.resolveRef?.("${ref}");
-          if (!el) return null;
-          return el.tagName.toLowerCase();
-        })()`,
-        returnByValue: true,
-      });
-
-      if (result.result?.value === "input") {
-        // For file inputs, we need DOM.setFileInputFiles via CDP
-        // First get the node
-        const doc = await cdp(tabId, "DOM.getDocument", {});
-        const nodeResult = await cdp(tabId, "Runtime.evaluate", {
-          expression: `(() => {
-            const el = window.__unblockedChrome?.resolveRef?.("${ref}");
-            if (el) el.scrollIntoView();
-            return true;
-          })()`,
-          returnByValue: true,
-        });
-        return { content: [{ type: "text", text: `Upload via file input requires a temporary file. Use the file input directly.` }] };
-      }
-    }
-
-    return { content: [{ type: "text", text: `Image upload for ref=${ref}, coordinate=${coordinate} — use drag & drop or file input.` }] };
+    // Not implemented. Uploading captured image data to a file input needs a
+    // real file on disk for CDP DOM.setFileInputFiles, which the service worker
+    // can't provide. Honest stub — the previous body ran page-world lookups
+    // (window.__unblockedChrome) that never resolve from CDP's isolated world.
+    return { content: [{ type: "text", text: "Image upload is not yet implemented in this extension." }] };
   },
 
   async gif_creator(args) {
