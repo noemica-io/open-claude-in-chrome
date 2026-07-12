@@ -304,66 +304,102 @@ function setupClientConnection(socket, initialBuffer) {
   });
 }
 
-// --- Client mode: connect to primary ---
+// --- Role acquisition: own the port (primary) or connect to it (client) ---
+// Run at startup AND whenever the primary we were using dies. Re-running this on
+// primary loss is what lets a surviving client promote itself to primary instead
+// of being stranded forever waiting for a primary that will never come back.
 
-function startClientMode() {
+function runAsPrimary() {
+  mode = "primary";
+  writePidfile();
+  process.stderr.write(`Primary MCP server listening on :${TCP_PORT}\n`);
+}
+
+// Try to bind the port. Resolves "ok" if we became the listener, "in-use" if
+// another live session already holds it, or "error" for anything else.
+function attemptListen() {
+  return new Promise((resolve) => {
+    const onError = (err) => {
+      tcpServer.removeListener("listening", onListening);
+      if (err.code === "EADDRINUSE") resolve("in-use");
+      else {
+        process.stderr.write(`TCP server error: ${err.message}\n`);
+        resolve("error");
+      }
+    };
+    const onListening = () => {
+      tcpServer.removeListener("error", onError);
+      resolve("ok");
+    };
+    tcpServer.once("error", onError);
+    tcpServer.once("listening", onListening);
+    tcpServer.listen(TCP_PORT, "127.0.0.1");
+  });
+}
+
+async function acquireRole() {
+  const outcome = await attemptListen();
+  if (outcome === "ok") runAsPrimary();
+  else if (outcome === "in-use") connectToPrimary();
+  else setTimeout(acquireRole, 1000); // transient bind error — retry
+}
+
+function connectToPrimary() {
   mode = "client";
+  clientBuffer = Buffer.alloc(0); // fresh connection — drop any stale partial line
   process.stderr.write(`Port ${TCP_PORT} in use. Connecting as client to primary MCP server...\n`);
 
-  function connect() {
-    primarySocket = net.createConnection(TCP_PORT, "127.0.0.1", () => {
-      process.stderr.write(`Connected to primary MCP server on :${TCP_PORT}\n`);
-      // Send handshake
-      primarySocket.write(JSON.stringify({ type: "client_hello" }) + "\n");
-    });
+  primarySocket = net.createConnection(TCP_PORT, "127.0.0.1", () => {
+    process.stderr.write(`Connected to primary MCP server on :${TCP_PORT}\n`);
+    // Send handshake
+    primarySocket.write(JSON.stringify({ type: "client_hello" }) + "\n");
+  });
 
-    primarySocket.on("data", (chunk) => {
-      clientBuffer = Buffer.concat([clientBuffer, chunk]);
-      let idx;
-      while ((idx = clientBuffer.indexOf(10)) !== -1) {
-        const line = clientBuffer.subarray(0, idx).toString("utf-8").trim();
-        clientBuffer = clientBuffer.subarray(idx + 1);
-        if (!line) continue;
-        try {
-          const msg = JSON.parse(line);
-          if (msg.type === "client_ack") continue;
-          if (msg.type === "error") {
-            process.stderr.write(`Primary server error: ${msg.error}\n`);
-            continue;
+  primarySocket.on("data", (chunk) => {
+    clientBuffer = Buffer.concat([clientBuffer, chunk]);
+    let idx;
+    while ((idx = clientBuffer.indexOf(10)) !== -1) {
+      const line = clientBuffer.subarray(0, idx).toString("utf-8").trim();
+      clientBuffer = clientBuffer.subarray(idx + 1);
+      if (!line) continue;
+      try {
+        const msg = JSON.parse(line);
+        if (msg.type === "client_ack") continue;
+        if (msg.type === "error") {
+          process.stderr.write(`Primary server error: ${msg.error}\n`);
+          continue;
+        }
+        // Tool response routed back from primary
+        if (msg.id && pendingRequests.has(msg.id)) {
+          const { resolve, reject, timer } = pendingRequests.get(msg.id);
+          clearTimeout(timer);
+          pendingRequests.delete(msg.id);
+          if (msg.type === "tool_error") {
+            reject(new Error(msg.error || "Tool execution failed"));
+          } else {
+            resolve(msg.result);
           }
-          // Tool response routed back from primary
-          if (msg.id && pendingRequests.has(msg.id)) {
-            const { resolve, reject, timer } = pendingRequests.get(msg.id);
-            clearTimeout(timer);
-            pendingRequests.delete(msg.id);
-            if (msg.type === "tool_error") {
-              reject(new Error(msg.error || "Tool execution failed"));
-            } else {
-              resolve(msg.result);
-            }
-          }
-        } catch {}
-      }
-    });
+        }
+      } catch {}
+    }
+  });
 
-    primarySocket.on("error", (err) => {
-      process.stderr.write(`Client connection error: ${err.message}\n`);
-    });
+  primarySocket.on("error", (err) => {
+    process.stderr.write(`Client connection error: ${err.message}\n`);
+  });
 
-    primarySocket.on("close", () => {
-      primarySocket = null;
-      // Primary died, reject pending requests
-      for (const [, { reject, timer }] of pendingRequests) {
-        clearTimeout(timer);
-        reject(new Error("Primary MCP server disconnected"));
-      }
-      pendingRequests.clear();
-      // Try to reconnect after a delay (primary might restart)
-      setTimeout(connect, 2000);
-    });
-  }
-
-  connect();
+  primarySocket.on("close", () => {
+    primarySocket = null;
+    // Reject in-flight requests; a dead primary can't answer them.
+    for (const [, { reject, timer }] of pendingRequests) {
+      clearTimeout(timer);
+      reject(new Error("Primary MCP server disconnected"));
+    }
+    pendingRequests.clear();
+    // The primary is gone. Try to take over the port ourselves; if another
+    // session beats us to it, acquireRole reconnects us to that new primary.
+    setTimeout(acquireRole, 200);
+  });
 }
 
 // --- Startup: try primary, fall back to client ---
@@ -389,26 +425,8 @@ async function start() {
     } catch {}
   }
 
-  // Try to bind the port
-  return new Promise((resolve) => {
-    tcpServer.once("error", (err) => {
-      if (err.code === "EADDRINUSE") {
-        // Port taken by another live session. Run as client.
-        startClientMode();
-        resolve();
-      } else {
-        process.stderr.write(`TCP server error: ${err.message}\n`);
-        process.exit(1);
-      }
-    });
-
-    tcpServer.listen(TCP_PORT, "127.0.0.1", () => {
-      mode = "primary";
-      writePidfile();
-      process.stderr.write(`Primary MCP server listening on :${TCP_PORT}\n`);
-      resolve();
-    });
-  });
+  // Own the port (primary) or connect to whoever already does (client).
+  await acquireRole();
 }
 
 await start();

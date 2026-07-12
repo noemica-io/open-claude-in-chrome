@@ -4,6 +4,9 @@
   "private": true,
   "description": "MCP server and native messaging host for Open Claude in Chrome",
   "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1"
   }
