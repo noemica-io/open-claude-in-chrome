@@ -9,6 +9,7 @@ import net from "node:net";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { getAuthToken } from "./auth-token.js";
 
 const DEFAULT_PORT = 18765;
 
@@ -62,6 +63,7 @@ let reconnectTimer = null;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 60; // 30 seconds at 500ms intervals
 const TCP_PORT = getPort();
+const AUTH_TOKEN = getAuthToken();
 
 function connectTcp() {
   if (tcpSocket) return;
@@ -74,6 +76,8 @@ function connectTcp() {
       clearInterval(reconnectTimer);
       reconnectTimer = null;
     }
+    // Authenticate to the primary. Without a valid token the primary drops us.
+    tcpSocket.write(JSON.stringify({ type: "native_hello", token: AUTH_TOKEN }) + "\n");
   });
 
   tcpSocket.on("data", (chunk) => {

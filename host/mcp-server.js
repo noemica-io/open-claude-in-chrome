@@ -15,7 +15,9 @@ import net from "node:net";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import crypto from "node:crypto";
 import { z } from "zod";
+import { getAuthToken } from "./auth-token.js";
 
 
 const DEFAULT_PORT = 18765;
@@ -31,6 +33,13 @@ function getPort() {
 }
 
 const TCP_PORT = getPort();
+const AUTH_TOKEN = getAuthToken();
+
+// Constant-time check that a peer presented the shared secret.
+function validAuth(token) {
+  if (typeof token !== "string" || token.length !== AUTH_TOKEN.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(token), Buffer.from(AUTH_TOKEN));
+}
 
 // --- Mode detection ---
 // Try to bind the port. If it's taken, switch to client mode.
@@ -160,42 +169,55 @@ function processLine(line) {
 }
 
 const tcpServer = net.createServer((socket) => {
-  // Classification: wait briefly for a client_hello. If none arrives, treat as native host.
-  // Native hosts (launched by the browser) don't send data immediately on connect.
-  // Client MCP servers send client_hello immediately.
+  // Every legitimate peer authenticates with a hello line the moment it
+  // connects: the native host sends {type:"native_hello",token}, a client MCP
+  // server sends {type:"client_hello",token}. Anything that presents a bad
+  // token, an unknown hello, or stays silent past the timeout is dropped — so a
+  // random local process (or another local user) can't hijack the port or the
+  // native host slot. This also replaces the old timing-based classification.
   let classified = false;
   let earlyBuffer = Buffer.alloc(0);
 
-  const classifyTimeout = setTimeout(() => {
+  const helloTimeout = setTimeout(() => {
     if (!classified) {
       classified = true;
-      setupNativeHostConnection(socket, earlyBuffer);
+      socket.destroy();
     }
-  }, 500); // 500ms is plenty for a local client_hello
+  }, 2000);
 
   socket.on("data", function onEarlyData(chunk) {
     if (classified) return; // Already classified, data handler was replaced
     earlyBuffer = Buffer.concat([earlyBuffer, chunk]);
     const newlineIdx = earlyBuffer.indexOf(10);
-    if (newlineIdx === -1) return; // No full line yet, keep buffering
+    if (newlineIdx === -1) {
+      if (earlyBuffer.length > 8192) { // no hello line in a sane amount of data
+        classified = true;
+        clearTimeout(helloTimeout);
+        socket.destroy();
+      }
+      return; // No full line yet, keep buffering
+    }
+
+    classified = true;
+    clearTimeout(helloTimeout);
+    socket.removeListener("data", onEarlyData);
 
     const firstLine = earlyBuffer.subarray(0, newlineIdx).toString("utf-8").trim();
-    try {
-      const firstMsg = JSON.parse(firstLine);
-      if (firstMsg.type === "client_hello") {
-        classified = true;
-        clearTimeout(classifyTimeout);
-        socket.removeListener("data", onEarlyData);
-        setupClientConnection(socket, earlyBuffer.subarray(newlineIdx + 1));
-        return;
-      }
-    } catch {}
+    const rest = earlyBuffer.subarray(newlineIdx + 1);
+    let msg = null;
+    try { msg = JSON.parse(firstLine); } catch {}
 
-    // Got data but it's not a client_hello, this is a native host
-    classified = true;
-    clearTimeout(classifyTimeout);
-    socket.removeListener("data", onEarlyData);
-    setupNativeHostConnection(socket, earlyBuffer);
+    if (!msg || !validAuth(msg.token)) {
+      socket.end(JSON.stringify({ type: "error", error: "Authentication failed." }) + "\n");
+      return;
+    }
+    if (msg.type === "client_hello") {
+      setupClientConnection(socket, rest);
+    } else if (msg.type === "native_hello") {
+      setupNativeHostConnection(socket, rest);
+    } else {
+      socket.end(JSON.stringify({ type: "error", error: "Unknown hello type." }) + "\n");
+    }
   });
 });
 
@@ -351,8 +373,8 @@ function connectToPrimary() {
 
   primarySocket = net.createConnection(TCP_PORT, "127.0.0.1", () => {
     process.stderr.write(`Connected to primary MCP server on :${TCP_PORT}\n`);
-    // Send handshake
-    primarySocket.write(JSON.stringify({ type: "client_hello" }) + "\n");
+    // Authenticated handshake — the primary drops us without a valid token.
+    primarySocket.write(JSON.stringify({ type: "client_hello", token: AUTH_TOKEN }) + "\n");
   });
 
   primarySocket.on("data", (chunk) => {

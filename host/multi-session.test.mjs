@@ -22,22 +22,24 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function isolatedEnv(port) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "ocic-test-"));
-  fs.mkdirSync(path.join(home, ".config", "open-claude-in-chrome"), { recursive: true });
-  fs.writeFileSync(
-    path.join(home, ".config", "open-claude-in-chrome", "config.json"),
-    JSON.stringify({ port })
-  );
-  return { env: { ...process.env, HOME: home }, home };
+  const cfgDir = path.join(home, ".config", "open-claude-in-chrome");
+  fs.mkdirSync(cfgDir, { recursive: true });
+  fs.writeFileSync(path.join(cfgDir, "config.json"), JSON.stringify({ port }));
+  const token = `test-token-${port}`;
+  fs.writeFileSync(path.join(cfgDir, "token"), token, { mode: 0o600 });
+  return { env: { ...process.env, HOME: home }, home, token };
 }
 
 // A stand-in for the browser's native host: a silent TCP client (so the primary
 // classifies it as a native host, not a client MCP server) that answers every
 // tool_request with MOCK_OK and reconnects if its primary dies.
-function startMockNativeHost(port) {
+function startMockNativeHost(port, token) {
   let sock;
   let alive = true;
   function connect() {
-    sock = net.createConnection(port, "127.0.0.1");
+    sock = net.createConnection(port, "127.0.0.1", () => {
+      sock.write(JSON.stringify({ type: "native_hello", token }) + "\n");
+    });
     let buf = Buffer.alloc(0);
     sock.on("data", (chunk) => {
       buf = Buffer.concat([buf, chunk]);
@@ -81,8 +83,8 @@ async function toolText(client, timeoutMs = 8000) {
 
 test("a surviving client promotes to primary when the primary dies", async (t) => {
   const PORT = 18831;
-  const { env, home } = isolatedEnv(PORT);
-  const nh = startMockNativeHost(PORT);
+  const { env, home, token } = isolatedEnv(PORT);
+  const nh = startMockNativeHost(PORT, token);
   t.after(() => { nh.stop(); try { fs.rmSync(home, { recursive: true, force: true }); } catch {} });
 
   const a = await startSession(env);        // becomes primary
@@ -105,8 +107,8 @@ test("a surviving client promotes to primary when the primary dies", async (t) =
 
 test("with two survivors, exactly one takes over and both keep working", async (t) => {
   const PORT = 18832;
-  const { env, home } = isolatedEnv(PORT);
-  const nh = startMockNativeHost(PORT);
+  const { env, home, token } = isolatedEnv(PORT);
+  const nh = startMockNativeHost(PORT, token);
   t.after(() => { nh.stop(); try { fs.rmSync(home, { recursive: true, force: true }); } catch {} });
 
   const a = await startSession(env);
