@@ -94,23 +94,7 @@ function sendToExtension(tool, args) {
   });
 }
 
-// --- Pidfile management ---
-
-const pidfilePath = path.join(os.tmpdir(), `open-claude-in-chrome-mcp-${TCP_PORT}.pid`);
-
-function writePidfile() {
-  try { fs.writeFileSync(pidfilePath, String(process.pid)); } catch {}
-}
-
-function cleanupPidfile() {
-  try {
-    const content = fs.readFileSync(pidfilePath, "utf-8").trim();
-    if (content === String(process.pid)) fs.unlinkSync(pidfilePath);
-  } catch {}
-}
-
 function shutdown() {
-  if (mode === "primary") cleanupPidfile();
   if (nativeHostSocket && !nativeHostSocket.destroyed) nativeHostSocket.destroy();
   if (primarySocket && !primarySocket.destroyed) primarySocket.destroy();
   for (const [, sock] of clientSockets) {
@@ -163,7 +147,6 @@ function processLine(line) {
   if (!line) return;
   try {
     const msg = JSON.parse(line);
-    if (msg.type === "heartbeat") return;
     handleResponse(msg);
   } catch {}
 }
@@ -333,7 +316,6 @@ function setupClientConnection(socket, initialBuffer) {
 
 function runAsPrimary() {
   mode = "primary";
-  writePidfile();
   process.stderr.write(`Primary MCP server listening on :${TCP_PORT}\n`);
 }
 
@@ -424,34 +406,9 @@ function connectToPrimary() {
   });
 }
 
-// --- Startup: try primary, fall back to client ---
+// --- Startup: own the port (primary) or connect to whoever already does ---
 
-async function start() {
-  // Clean up stale pidfiles (but don't kill live servers)
-  const pidfiles = [
-    pidfilePath,
-    path.join(os.tmpdir(), `unblocked-chrome-mcp-${TCP_PORT}.pid`),
-  ];
-  for (const pf of pidfiles) {
-    try {
-      const oldPid = parseInt(fs.readFileSync(pf, "utf-8").trim(), 10);
-      if (oldPid && oldPid !== process.pid) {
-        try {
-          process.kill(oldPid, 0); // Check if alive
-          // It's alive. DON'T kill it. We'll run as client instead.
-        } catch {
-          // Dead process, clean up pidfile
-          try { fs.unlinkSync(pf); } catch {}
-        }
-      }
-    } catch {}
-  }
-
-  // Own the port (primary) or connect to whoever already does (client).
-  await acquireRole();
-}
-
-await start();
+await acquireRole();
 
 // --- Helper to wrap tool results for MCP ---
 
