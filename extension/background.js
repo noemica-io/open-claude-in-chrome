@@ -75,14 +75,13 @@ function connectNativeHost() {
         }
       } else if (msg.type === "trace_written") {
         // Reply from the native host after overwriting trace.json (retry path).
-        // Multiple retranscribe calls may target the same recording_id, so the
-        // pending map holds a Set of resolvers; settle them all.
-        const set = recorder.pendingTraceWrites.get(String(msg.recording_id));
-        if (set) {
-          recorder.pendingTraceWrites.delete(String(msg.recording_id));
-          for (const resolve of set) {
-            resolve(msg.ok);
-          }
+        // Correlate by the caller-specific write_id so a reply settles exactly
+        // the call that issued it — concurrent retranscribe calls for the same
+        // recording_id each carry their own id and can't cross-settle.
+        const resolve = recorder.pendingTraceWrites.get(String(msg.write_id));
+        if (resolve) {
+          recorder.pendingTraceWrites.delete(String(msg.write_id));
+          resolve(msg.ok);
         }
       }
     });
@@ -1357,7 +1356,7 @@ const recorder = {
   startedAt: null,
   deliveredIds: new Set(), // recording_ids Claude has acked
   pendingSaves: new Map(), // recording_id -> resolve (native-host disk write)
-  pendingTraceWrites: new Map(), // recording_id -> Set<resolve> (retry trace.json write)
+  pendingTraceWrites: new Map(), // write_id -> resolve (retry trace.json write)
   imgSeq: 0, // frame counter for the images/ dir
   lastCapture: 0, // ts of last frame, to throttle to ≤1/sec
   lastVw: 0, // last viewport size seen (from content-script events), stamped
@@ -1817,36 +1816,28 @@ async function saveBundleToDisk(bundle) {
 // Overwrite trace.json on disk for a recording (retranscribe path). Distinct
 // from saveBundleToDisk because a retry only re-writes the trace — the audio
 // and schema are already on disk.
+// Monotonic id so each write_trace call is individually correlated to its
+// reply. The native host echoes write_id back; without it, concurrent
+// retranscribe calls for the same recording_id couldn't be distinguished, and
+// one call's timeout or a stale reply would settle another call's promise with
+// the wrong result.
+let traceWriteSeq = 0;
+
 async function writeTraceToDisk(recording_id, trace) {
   if (!nativePort) return false;
-  const id = String(recording_id);
+  const writeId = ++traceWriteSeq;
   const done = new Promise((resolve) => {
-    // A Set, not a single slot: concurrent retranscribe calls for the same
-    // recording_id must each get settled, otherwise the first caller's promise
-    // hangs forever when the second overwrites the map entry.
-    let set = recorder.pendingTraceWrites.get(id);
-    if (!set) {
-      set = new Set();
-      recorder.pendingTraceWrites.set(id, set);
-    }
-    set.add(resolve);
+    // Keyed by writeId, not recording_id: each call gets its own slot so a
+    // timeout or reply settles exactly this call, never a concurrent sibling.
+    recorder.pendingTraceWrites.set(writeId, resolve);
     setTimeout(() => {
-      const s = recorder.pendingTraceWrites.get(id);
-      if (s) {
-        recorder.pendingTraceWrites.delete(id);
-        for (const r of s) r(false);
-      }
+      if (recorder.pendingTraceWrites.delete(writeId)) resolve(false);
     }, 8000);
   });
   try {
-    nativePort.postMessage({ type: "write_trace", recording_id, trace });
+    nativePort.postMessage({ type: "write_trace", recording_id, write_id: writeId, trace });
   } catch {
-    const s = recorder.pendingTraceWrites.get(id);
-    if (s) {
-      recorder.pendingTraceWrites.delete(id);
-      for (const r of s) r(false);
-    }
-    return false;
+    if (recorder.pendingTraceWrites.delete(writeId)) return false;
   }
   return await done;
 }

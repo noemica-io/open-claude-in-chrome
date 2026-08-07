@@ -185,15 +185,22 @@ function handleWriteTrace(msg) {
       path.join(dir, "trace.json"),
       JSON.stringify(msg.trace ?? {}, null, 2)
     );
+    // Echo write_id back so the extension can settle the exact caller that
+    // issued this write. Without it, concurrent retranscribe calls for the same
+    // recording_id could not be correlated individually (the reply only carried
+    // recording_id), and one call's timeout or stale reply could settle another's
+    // promise with the wrong result.
     writeNativeMessage({
       type: "trace_written",
       recording_id: msg.recording_id,
+      write_id: msg.write_id,
       ok: true
     });
   } catch (e) {
     writeNativeMessage({
       type: "trace_written",
       recording_id: msg.recording_id,
+      write_id: msg.write_id,
       ok: false,
       error: String(e && e.message)
     });
