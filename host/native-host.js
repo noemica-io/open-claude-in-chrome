@@ -254,6 +254,28 @@ function handleSaveScreenshot(msg) {
   }
 }
 
+// Stage an in-memory screenshot as a real temp file so the extension can
+// attach it to a file input via CDP DOM.setFileInputFiles. The extension holds
+// screenshots as base64 in a Map (never on disk), but setFileInputFiles needs
+// a path, so we materialize the bytes here and return the absolute path.
+// Reply is keyed by msg.id so the extension can correlate it to its request.
+function handleWriteTempFile(msg) {
+  const reply = (payload) => writeNativeMessage({ id: msg.id, type: "temp_file_written", ...payload });
+  try {
+    const dir = path.join(os.homedir(), ".config", "open-claude-in-chrome", "tmp");
+    fs.mkdirSync(dir, { recursive: true });
+    // Sanitize the requested name: no path separators, no traversal.
+    const name = String(msg.filename || "upload.png").replace(/[^\w.\-]/g, "_");
+    const file = path.join(dir, `${Date.now()}_${name}`);
+    const b64 = String(msg.dataUrl || "").replace(/^data:[^;]+;base64,/, "");
+    if (!b64) return reply({ ok: false, error: "no data" });
+    fs.writeFileSync(file, Buffer.from(b64, "base64"));
+    reply({ ok: true, result: file });
+  } catch (e) {
+    reply({ ok: false, error: String(e && e.message) });
+  }
+}
+
 // --- Main: bridge stdin (from extension) <-> TCP (to MCP server) ---
 
 let stdinBuffer = Buffer.alloc(0);
@@ -277,8 +299,12 @@ process.stdin.on("data", (chunk) => {
       handleSaveAudio(msg);
       continue;
     }
-    if (msg && msg.type === "write_trace") {
+if (msg && msg.type === "write_trace") {
       handleWriteTrace(msg);
+      continue;
+    }
+    if (msg && msg.type === "write_temp_file") {
+      handleWriteTempFile(msg);
       continue;
     }
     // Forward everything else to the MCP server via TCP.

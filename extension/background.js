@@ -76,7 +76,7 @@ function connectNativeHost() {
           recorder.pendingSaves.delete(String(msg.recording_id));
           resolve(msg.ok ? msg.path : null);
         }
-      } else if (msg.type === "trace_written") {
+} else if (msg.type === "trace_written") {
         // Reply from the native host after overwriting trace.json (retry path).
         // Correlate by the caller-specific write_id so a reply settles exactly
         // the call that issued it — concurrent retranscribe calls for the same
@@ -86,6 +86,13 @@ function connectNativeHost() {
           recorder.pendingTraceWrites.delete(String(msg.write_id));
           resolve(msg.ok);
         }
+      } else if (msg.id && pendingNative.has(msg.id)) {
+        // Generic reply to a nativeRequest() (e.g. write_temp_file). The host
+        // echoes the request id back so we can settle the matching promise.
+        const p = pendingNative.get(msg.id);
+        pendingNative.delete(msg.id);
+        if (msg.ok) p.resolve(msg.result);
+        else p.reject(new Error(String(msg.error || "Native request failed")));
       }
     });
 
@@ -150,6 +157,26 @@ function sendError(id, error) {
   } catch {
     // Port disconnected
   }
+}
+
+// --- Native host request/response (ask host to do something, wait for result) ---
+// The recorder's save_* messages are fire-and-forget; upload_image needs a
+// reply (the temp file path). pendingNative correlates a reply by id. Bound
+// the wait so a lost reply can't hang a tool call past the CDP timeout.
+const pendingNative = new Map(); // request id -> { resolve, reject }
+let nativeReqSeq = 0;
+
+function nativeRequest(msg) {
+  return new Promise((resolve, reject) => {
+    if (!nativePort) { reject(new Error("Native host not connected")); return; }
+    const id = `nr_${Date.now()}_${nativeReqSeq++}`;
+    pendingNative.set(id, { resolve, reject });
+    nativePort.postMessage({ ...msg, id });
+    setTimeout(() => {
+      const p = pendingNative.get(id);
+      if (p) { pendingNative.delete(id); p.reject(new Error("Native request timed out")); }
+    }, CDP_TIMEOUT_MS);
+  });
 }
 
 // --- Tab group management ---
@@ -1247,36 +1274,65 @@ const toolHandlers = {
       return { content: [{ type: "text", text: `Image ${imageId} not found. Take a screenshot first.` }] };
     }
 
-    // Use CDP to set file input
-    if (ref) {
-      // Find the element and set its files via CDP
-      await ensureAttached(tabId);
-      const result = await cdp(tabId, "Runtime.evaluate", {
-        expression: `(() => {
-          const el = window.__unblockedChrome?.resolveRef?.("${ref}");
-          if (!el) return null;
-          return el.tagName.toLowerCase();
-        })()`,
-        returnByValue: true,
-      });
+    // Locate the file input: the ref target itself, or (coordinate path) the
+    // nearest <input type=file> under the point. Reusing the content script's
+    // resolveRef keeps behavior consistent with the other tools.
+    await ensureAttached(tabId);
+    await ensureDomain(tabId, "DOM");
 
-      if (result.result?.value === "input") {
-        // For file inputs, we need DOM.setFileInputFiles via CDP
-        // First get the node
-        const doc = await cdp(tabId, "DOM.getDocument", {});
-        const nodeResult = await cdp(tabId, "Runtime.evaluate", {
-          expression: `(() => {
-            const el = window.__unblockedChrome?.resolveRef?.("${ref}");
-            if (el) el.scrollIntoView();
-            return true;
-          })()`,
-          returnByValue: true,
-        });
-        return { content: [{ type: "text", text: `Upload via file input requires a temporary file. Use the file input directly.` }] };
-      }
+    const fileInputExpr = ref
+      ? `window.__unblockedChrome?.resolveRef?.("${ref}")`
+      : `(() => {
+          const el = document.elementFromPoint(${coordinate.x}, ${coordinate.y});
+          return el?.closest?.("input[type=file]") || null;
+        })()`;
+
+    // 1) Classify the target before touching the DOM.
+    const detect = await cdp(tabId, "Runtime.evaluate", {
+      expression: `(() => {
+        const el = ${fileInputExpr};
+        if (!el) return { missing: true };
+        if (el.tagName.toLowerCase() !== "input" || el.type !== "file") {
+          return { notFile: el.tagName.toLowerCase() };
+        }
+        return { fileInput: true };
+      })()`,
+      returnByValue: true,
+    });
+    const cls = detect.result?.value;
+    if (cls?.missing) {
+      const where = ref ? `ref=${ref}` : `coordinate (${coordinate.x}, ${coordinate.y})`;
+      return { content: [{ type: "text", text: `No file input found at ${where}. Drag & drop of a real file isn't supported here; point at an <input type=file>.` }] };
+    }
+    if (cls?.notFile) {
+      return { content: [{ type: "text", text: `Target ref=${ref} is a <${cls.notFile}>, not a file input.` }] };
     }
 
-    return { content: [{ type: "text", text: `Image upload for ref=${ref}, coordinate=${coordinate} — use drag & drop or file input.` }] };
+    // 2) Stage the screenshot bytes as a real temp file via the native host.
+    //    The screenshot lives in-memory (base64), so setFileInputFiles needs a
+    //    path on disk to attach.
+    let tempPath;
+    try {
+      tempPath = await nativeRequest({ type: "write_temp_file", dataUrl: base64, filename });
+    } catch (e) {
+      return { content: [{ type: "text", text: `Failed to stage temp file for ${imageId}: ${String(e && e.message)}` }] };
+    }
+    if (!tempPath) {
+      return { content: [{ type: "text", text: `Failed to stage temp file for ${imageId}.` }] };
+    }
+
+    // 3) Grab the file input's nodeId, then push the file via CDP. The CDP
+    //    sequence is: Runtime.evaluate -> element objectId, DOM.requestNode ->
+    //    nodeId, DOM.setFileInputFiles -> attach the staged file.
+    const objRes = await cdp(tabId, "Runtime.evaluate", { expression: fileInputExpr, returnByValue: false });
+    const objectId = objRes.result?.objectId;
+    if (!objectId) {
+      return { content: [{ type: "text", text: `Could not resolve the file input node for ${ref || `(${coordinate.x}, ${coordinate.y})`}.` }] };
+    }
+    const node = await cdp(tabId, "DOM.requestNode", { objectId });
+    await cdp(tabId, "DOM.setFileInputFiles", { nodeId: node.nodeId, files: [tempPath] });
+
+    return { content: [{ type: "text", text: `Uploaded ${filename} (${imageId}) to the file input. Temp file: ${tempPath}` }] };
   },
 
   // Re-run a failed transcription for a saved recording. The offscreen doc
