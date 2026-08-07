@@ -62,6 +62,12 @@ export const TOOLS = [
         .number()
         .describe(
           "Tab ID to navigate. Must be a tab in the current group. Use tabs_context_mcp first if you don't have a valid tab ID."
+        ),
+      wait: z
+        .enum(["load", "networkidle"])
+        .optional()
+        .describe(
+          'Load wait strategy. "load" (default) resolves when the page fires its load event (initial HTML + synchronous resources). "networkidle" additionally waits until the page has made no network requests for ~500ms, which is more reliable for single-page apps that fetch data after the initial HTML load. Costs a bit more time and attaches the debugger.'
         )
     }
   },
