@@ -297,13 +297,14 @@ function waitForNetworkIdle(tabId, { quietMs = 500, timeoutMs = 15000 } = {}) {
         if (idleSince === null) idleSince = Date.now();
         if (Date.now() - idleSince >= quietMs) {
           clearInterval(poll);
+          clearTimeout(bail);
           resolve();
         }
       } else {
         idleSince = null;
       }
     }, 100);
-    setTimeout(() => {
+    const bail = setTimeout(() => {
       clearInterval(poll);
       resolve();
     }, timeoutMs);
@@ -325,6 +326,10 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 // Handle user dismissing debugger bar
 chrome.debugger.onDetach.addListener((source, reason) => {
   attachedTabs.delete(source.tabId);
+  // Drop the in-flight counter too: a stale non-empty count would otherwise
+  // make a networkidle wait spin out its full hard timeout with no signal that
+  // the debugger is gone.
+  networkInflight.delete(source.tabId);
 });
 
 // --- CDP event listeners for console and network ---
@@ -387,7 +392,10 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
     // Keyed by requestId: a redirect re-emits requestWillBeSent for the SAME
     // requestId (with a redirectResponse) and never separately finishes, so
     // deduping on requestId keeps redirect chains from leaking +1 each.
-    if (!params.redirectResponse) {
+    // EventSource/WebSocket are long-lived STREAMS, not page-load requests:
+    // they never fire loadingFinished until closed, so counting them would make
+    // the very live-updating pages networkidle targets always burn the timeout.
+    if (!params.redirectResponse && params.type !== "EventSource" && params.type !== "WebSocket") {
       let ids = networkInflight.get(tabId);
       if (!ids) { ids = new Set(); networkInflight.set(tabId, ids); }
       ids.add(params.requestId);
