@@ -42,6 +42,18 @@ async function detectBrowser() {
   return "Chrome";
 }
 
+// Browser-aware mouse ack strategy. Whether we're on Brave is stable for the
+// life of the service worker, so cache the detection at module level and
+// resolve it lazily (detectBrowser is async). null = not yet determined.
+let IS_BRAVE = null;
+
+async function isBrave() {
+  if (IS_BRAVE === null) {
+    IS_BRAVE = (await detectBrowser()) === "Brave";
+  }
+  return IS_BRAVE;
+}
+
 // --- Keep-alive alarm ---
 // Backstop wake-up for the MV3 service worker. The proactive heartbeat
 // inside connectNativeHost (~15s) is the primary mechanism; this alarm
@@ -565,17 +577,17 @@ async function takeScreenshot(tabId) {
   // used by Input.dispatchMouseEvent. No scaling tricks needed.
   const result = await cdp(tabId, "Page.captureScreenshot", {
     format: "jpeg",
-    quality: 55,
+    quality: 45,
     optimizeForSpeed: true,
     captureBeyondViewport: false,
   });
   let base64 = result.data;
 
-  // If still too large (>500KB base64 ≈ ~375KB binary), reduce quality further
-  if (base64.length > 500000) {
+  // If still too large (>350KB base64 ≈ ~262KB binary), reduce quality further
+  if (base64.length > 350000) {
     const smaller = await cdp(tabId, "Page.captureScreenshot", {
       format: "jpeg",
-      quality: 30,
+      quality: 28,
       optimizeForSpeed: true,
       captureBeyondViewport: false,
     });
@@ -633,7 +645,8 @@ function writeScreenshotToDisk(base64) {
 // race, because its effect is verified to apply without the ack and nothing
 // depends on it inside the same action. Chrome acks everything instantly,
 // so the awaits cost nothing there.
-const INPUT_ACK_WAIT_MS = 250;
+const INPUT_ACK_WAIT_MS = 250; // Brave: bounded wait for fire-and-forget (mouseWheel never acks)
+const CHROME_INPUT_ACK_WAIT_MS = 50; // Chrome: acks instantly, a short window suffices
 
 async function sendMouseEvent(tabId, params, { awaitAck = true } = {}) {
   await ensureAttached(tabId);
@@ -643,24 +656,36 @@ async function sendMouseEvent(tabId, params, { awaitAck = true } = {}) {
     "CDP Input.dispatchMouseEvent",
   );
   if (awaitAck) {
-    await send;
+    await send; // serial-await path (required on Brave: press/release dropped if not awaited)
     return;
   }
+  // Fire-and-forget path (mouseWheel, and Chrome mouseMoved): wait for the ack
+  // only up to a bounded window so Brave's ~5s-stalled acks don't block us.
+  // Brave needs the full window; Chrome acks instantly, so a short one suffices.
+  const ackWaitMs = (await isBrave()) ? INPUT_ACK_WAIT_MS : CHROME_INPUT_ACK_WAIT_MS;
   await Promise.race([
     send.catch((e) => console.warn("Input.dispatchMouseEvent late ack/failure:", e.message)),
-    sleep(INPUT_ACK_WAIT_MS),
+    sleep(ackWaitMs),
   ]);
 }
 
 async function dispatchMouse(tabId, type, x, y, opts = {}) {
-  await sendMouseEvent(tabId, {
-    type,
-    x,
-    y,
-    button: opts.button || "left",
-    clickCount: opts.clickCount || 1,
-    modifiers: opts.modifiers || 0,
-  });
+  // Chrome acks instantly and applies immediately, so the mouseMoved "move"
+  // sub-event needs no ack and can be fire-and-forget (awaitAck:false). Brave
+  // must keep the serial-await path (its moves silently drop if not awaited).
+  const awaitAck = opts.awaitAck ?? (type === "mouseMoved" ? await isBrave() : true);
+  await sendMouseEvent(
+    tabId,
+    {
+      type,
+      x,
+      y,
+      button: opts.button || "left",
+      clickCount: opts.clickCount || 1,
+      modifiers: opts.modifiers || 0,
+    },
+    { awaitAck },
+  );
 }
 
 async function mouseClick(tabId, x, y, opts = {}) {
@@ -669,9 +694,13 @@ async function mouseClick(tabId, x, y, opts = {}) {
   const modifiers = opts.modifiers || 0;
 
   await dispatchMouse(tabId, "mouseMoved", x, y, { modifiers });
-  await sleep(50);
+  // Brave's debugger pipeline needs a ~50ms settle window between dispatched
+  // events (verified empirically); Chrome acks instantly, so the sleeps are
+  // pure latency there and are dropped to keep clicks snappy.
+  const brave = await isBrave();
+  if (brave) await sleep(50);
   await dispatchMouse(tabId, "mousePressed", x, y, { button, clickCount, modifiers });
-  await sleep(50);
+  if (brave) await sleep(50);
   await dispatchMouse(tabId, "mouseReleased", x, y, { button, clickCount, modifiers });
 }
 
@@ -790,6 +819,8 @@ const toolHandlers = {
   async navigate(args) {
     const { url, tabId, wait = "load" } = args;
     if (!(await isInGroup(tabId))) return { content: [{ type: "text", text: `Tab ${tabId} is not in the MCP group.` }] };
+
+    await activateTab(tabId);
 
     // networkidle needs the Network domain enabled from (just before) the start
     // of the navigation so every request the page makes is counted. Default
@@ -915,6 +946,7 @@ const toolHandlers = {
       }
 
       case "left_click": {
+        await activateTab(tabId);
         if (!coordinate) return { content: [{ type: "text", text: "coordinate is required for left_click" }] };
         await mouseClick(tabId, coordinate[0], coordinate[1], { modifiers });
         return { content: [{ type: "text", text: `Clicked at (${coordinate[0]}, ${coordinate[1]})` }] };
@@ -944,24 +976,28 @@ const toolHandlers = {
       }
 
       case "right_click": {
+        await activateTab(tabId);
         if (!coordinate) return { content: [{ type: "text", text: "coordinate is required for right_click" }] };
         await mouseClick(tabId, coordinate[0], coordinate[1], { button: "right", modifiers });
         return { content: [{ type: "text", text: `Right-clicked at (${coordinate[0]}, ${coordinate[1]})` }] };
       }
 
       case "double_click": {
+        await activateTab(tabId);
         if (!coordinate) return { content: [{ type: "text", text: "coordinate is required for double_click" }] };
         await mouseClick(tabId, coordinate[0], coordinate[1], { clickCount: 2, modifiers });
         return { content: [{ type: "text", text: `Double-clicked at (${coordinate[0]}, ${coordinate[1]})` }] };
       }
 
       case "triple_click": {
+        await activateTab(tabId);
         if (!coordinate) return { content: [{ type: "text", text: "coordinate is required for triple_click" }] };
         await mouseClick(tabId, coordinate[0], coordinate[1], { clickCount: 3, modifiers });
         return { content: [{ type: "text", text: `Triple-clicked at (${coordinate[0]}, ${coordinate[1]})` }] };
       }
 
       case "hover": {
+        await activateTab(tabId);
         if (!coordinate) return { content: [{ type: "text", text: "coordinate is required for hover" }] };
         await dispatchMouse(tabId, "mouseMoved", coordinate[0], coordinate[1], { modifiers });
         await sleep(200);
@@ -969,13 +1005,10 @@ const toolHandlers = {
       }
 
       case "type": {
+        await activateTab(tabId);
         if (!args.text) return { content: [{ type: "text", text: "text is required for type action" }] };
         await ensureAttached(tabId);
-        // Type character by character for better compatibility
-        for (const char of args.text) {
-          await cdp(tabId, "Input.insertText", { text: char });
-          await sleep(10);
-        }
+        await cdp(tabId, "Input.insertText", { text: args.text });
         return { content: [{ type: "text", text: `Typed "${args.text.substring(0, 50)}${args.text.length > 50 ? "..." : ""}"` }] };
       }
 
@@ -1009,6 +1042,7 @@ const toolHandlers = {
       }
 
       case "scroll": {
+        await activateTab(tabId);
         if (!coordinate) return { content: [{ type: "text", text: "coordinate is required for scroll" }] };
         const dir = args.scroll_direction || "down";
         const amount = Math.min(args.scroll_amount || 3, 10);
@@ -1040,6 +1074,7 @@ const toolHandlers = {
       }
 
       case "scroll_to": {
+        await activateTab(tabId);
         if (!coordinate && !args.ref) return { content: [{ type: "text", text: "coordinate or ref is required for scroll_to" }] };
         if (args.ref) {
           await sendContentMessage(tabId, {
@@ -1064,6 +1099,7 @@ const toolHandlers = {
       }
 
       case "left_click_drag": {
+        await activateTab(tabId);
         if (!args.start_coordinate || !coordinate) {
           return { content: [{ type: "text", text: "start_coordinate and coordinate are required for left_click_drag" }] };
         }
