@@ -92,6 +92,14 @@ function getAll(store) {
     req.onerror = () => reject(req.error);
   });
 }
+function getRow(store, key) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, "readonly");
+    const req = tx.objectStore(store).get(key);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
 function clearStore(store) {
   return new Promise((resolve) => {
     const tx = db.transaction(store, "readwrite");
@@ -356,6 +364,24 @@ async function transcribeRecording() {
   if (!pendingStop) return { ok: false, error: "nothing to transcribe" };
   const { trace, segBlobs, apiKey, recording_id, imageRows } = pendingStop;
 
+  const { status } = await runTranscription(segBlobs, apiKey, trace);
+
+  await writeSessionRecord(pendingStop, status);
+  pendingStop = null;
+  return {
+    ok: true,
+    cognitive: trace.cognitive,
+    transcript_status: status,
+    transcript_segments: trace.transcript_segments,
+    summary: buildSummary(trace)
+  };
+}
+
+// Shared transcription core: run whisper over each segment, map onto the shared
+// clock, and fold statuses into the trace. Used at stop (in-memory segBlobs)
+// and on retry (segments rebuilt from IndexedDB). Only mutates the passed
+// trace — persistence is the caller's job.
+async function runTranscription(segBlobs, apiKey, trace) {
   const segStatuses = [];
   let cognitive = [];
   for (const seg of segBlobs) {
@@ -383,14 +409,50 @@ async function transcribeRecording() {
   trace.cognitive = cognitive;
   trace.transcript_status = status;
   trace.transcript_segments = segStatuses;
+  return { cognitive, status, segStatuses };
+}
 
-  await writeSessionRecord(pendingStop, status);
-  pendingStop = null;
+// Re-run transcription for a saved recording whose transcript failed at stop.
+// The durable segment bytes live in IndexedDB until the next recording starts,
+// and the per-segment epoch anchors persisted in the session record map them
+// onto the same shared clock. The SW writes the patched trace to disk.
+async function retranscribe(recording_id, apiKey) {
+  db = db || (await openDb());
+  const row = await getRow("sessions", recording_id);
+  if (!row || !row.trace) return { ok: false, error: "no such recording" };
+  if (!row.segEpochs || !row.segEpochs.length)
+    return { ok: false, error: "recording predates this retry path (missing segment anchors)" };
+
+  const audioRows = await getAll("audio");
+  const bySeg = new Map();
+  for (const r of audioRows) {
+    const k = r.seg ?? 0;
+    if (!bySeg.has(k)) bySeg.set(k, []);
+    bySeg.get(k).push(r.bytes);
+  }
+  const segBlobs = row.segEpochs
+    .map((e) => ({
+      index: e.index,
+      startEpoch: e.startEpoch,
+      blob: new Blob(bySeg.get(e.index) || [], { type: "audio/webm" })
+    }))
+    .filter((seg) => seg.blob.size > 0);
+  if (!segBlobs.length)
+    return { ok: false, error: "no audio segments remain (a newer recording cleared them)" };
+
+  const trace = row.trace;
+  const { status } = await runTranscription(segBlobs, apiKey, trace);
+  row.trace = trace;
+  row.transcriptStatus = status;
+  row.utterances = (trace.cognitive || []).length;
+  await putRecord("sessions", row);
   return {
     ok: true,
-    cognitive,
+    recording_id,
+    trace,
+    cognitive: trace.cognitive,
     transcript_status: status,
-    transcript_segments: segStatuses,
+    transcript_segments: trace.transcript_segments,
     summary: buildSummary(trace)
   };
 }
@@ -410,6 +472,9 @@ async function writeSessionRecord(p, status) {
     events: (trace.behavior || []).length,
     utterances: (trace.cognitive || []).length,
     transcriptStatus: status,
+    // Per-segment epoch anchors, so a later retry can re-run transcription and
+    // map the rebuilt track onto the same shared clock.
+    segEpochs: (segBlobs || []).map((x) => ({ index: x.index, startEpoch: x.startEpoch })),
     trace,
     // kept for playback in the viewer; the authoritative copy is on disk
     audio: new Blob(segBlobs.map((x) => x.blob), { type: "audio/webm" }),
@@ -475,6 +540,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       else if (msg.cmd === "stop") sendResponse(await stopRecording());
       else if (msg.cmd === "audio_slice") sendResponse(await audioSlice(msg));
       else if (msg.cmd === "transcribe") sendResponse(await transcribeRecording());
+      else if (msg.cmd === "retranscribe") sendResponse(await retranscribe(msg.recording_id, msg.apiKey));
       else if (msg.cmd === "copy") sendResponse(copyText(msg.text));
       else if (msg.cmd === "set_path") {
         db = db || (await openDb());

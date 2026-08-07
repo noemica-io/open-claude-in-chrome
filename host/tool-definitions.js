@@ -508,6 +508,18 @@ export const TOOLS = [
           'Optional filename for the uploaded file (default: "image.png")'
         )
     }
+  },
+  {
+    name: "retranscribe_recording",
+    description:
+      "Re-run transcription for a saved recording whose transcript failed at stop (e.g. a transient OpenAI error). Re-assembles the durable audio segments, re-transcribes them, and patches trace.json on disk, overwriting the previous transcript. Returns the updated transcript status and utterance count. Constraints: only works for the MOST RECENT recording recorded after this feature shipped (a newer recording clears the in-browser audio store; older sessions lack the segment anchors needed to map timestamps). Only call it to recover a recording whose transcript actually failed — re-running on a good one replaces the transcript with a fresh result and could worsen it if OpenAI is currently failing.",
+    paramShape: {
+      recording_id: z
+        .string()
+        .describe(
+          "The recording_id shown in the bundle path after a recording_complete notification (e.g. the timestamp-based id)."
+        )
+    }
   }
 ];
 

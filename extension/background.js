@@ -73,6 +73,13 @@ function connectNativeHost() {
           recorder.pendingSaves.delete(String(msg.recording_id));
           resolve(msg.ok ? msg.path : null);
         }
+      } else if (msg.type === "trace_written") {
+        // Reply from the native host after overwriting trace.json (retry path).
+        const resolve = recorder.pendingTraceWrites.get(String(msg.recording_id));
+        if (resolve) {
+          recorder.pendingTraceWrites.delete(String(msg.recording_id));
+          resolve(msg.ok);
+        }
       }
     });
 
@@ -1206,6 +1213,33 @@ const toolHandlers = {
     return { content: [{ type: "text", text: `Image upload for ref=${ref}, coordinate=${coordinate} — use drag & drop or file input.` }] };
   },
 
+  // Re-run a failed transcription for a saved recording. The offscreen doc
+  // re-assembles the durable segments from IndexedDB and re-maps them onto the
+  // shared clock; we then persist the patched trace.json on disk.
+  async retranscribe_recording(args) {
+    const { recording_id } = args;
+    if (!recording_id)
+      return { content: [{ type: "text", text: "recording_id is required." }] };
+
+    const apiKey = await getApiKey();
+    const res = await chrome.runtime.sendMessage({
+      __ocic_offscreen: true,
+      cmd: "retranscribe",
+      recording_id,
+      apiKey,
+    });
+    if (!res || !res.ok) {
+      return { content: [{ type: "text", text: res?.error || "retranscription failed." }] };
+    }
+
+    const wrote = await writeTraceToDisk(recording_id, res.trace).catch(() => false);
+    const synopsis =
+      `Recording ${recording_id} retranscribed: ${res.transcript_status}. ` +
+      `${(res.cognitive || []).length} utterances. ` +
+      (wrote ? "trace.json updated on disk." : "WARNING: trace.json could not be written to disk.");
+    return { content: [{ type: "text", text: synopsis }] };
+  },
+
   async gif_creator(args) {
     return { content: [{ type: "text", text: "GIF recording is not yet implemented in this extension." }] };
   },
@@ -1296,6 +1330,7 @@ const recorder = {
   startedAt: null,
   deliveredIds: new Set(), // recording_ids Claude has acked
   pendingSaves: new Map(), // recording_id -> resolve (native-host disk write)
+  pendingTraceWrites: new Map(), // recording_id -> resolve (retry trace.json write)
   imgSeq: 0, // frame counter for the images/ dir
   lastCapture: 0, // ts of last frame, to throttle to ≤1/sec
   lastVw: 0, // last viewport size seen (from content-script events), stamped
@@ -1748,6 +1783,26 @@ async function saveBundleToDisk(bundle) {
   } catch {
     recorder.pendingSaves.delete(String(bundle.recording_id));
     return null;
+  }
+  return await done;
+}
+
+// Overwrite trace.json on disk for a recording (retranscribe path). Distinct
+// from saveBundleToDisk because a retry only re-writes the trace — the audio
+// and schema are already on disk.
+async function writeTraceToDisk(recording_id, trace) {
+  if (!nativePort) return false;
+  const done = new Promise((resolve) => {
+    recorder.pendingTraceWrites.set(String(recording_id), resolve);
+    setTimeout(() => {
+      if (recorder.pendingTraceWrites.delete(String(recording_id))) resolve(false);
+    }, 8000);
+  });
+  try {
+    nativePort.postMessage({ type: "write_trace", recording_id, trace });
+  } catch {
+    recorder.pendingTraceWrites.delete(String(recording_id));
+    return false;
   }
   return await done;
 }
