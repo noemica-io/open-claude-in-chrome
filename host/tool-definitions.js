@@ -1,4 +1,4 @@
-// The 18 open-claude-in-chrome tool definitions, extracted as data so both
+// The 21 open-claude-in-chrome tool definitions, extracted as data so both
 // the standard stdio MCP server (host/mcp-server.js) and the codemode +
 // hybrid servers can register them without duplicating the schemas.
 //
@@ -510,7 +510,7 @@ export const TOOLS = [
     }
   },
   {
-    name: "retranscribe_recording",
+name: "retranscribe_recording",
     description:
       "Re-run transcription for a saved recording whose transcript failed at stop (e.g. a transient OpenAI error). Re-assembles the durable audio segments, re-transcribes them, and patches trace.json on disk, overwriting the previous transcript. Returns the updated transcript status and utterance count. Constraints: only works for the MOST RECENT recording recorded after this feature shipped (a newer recording clears the in-browser audio store; older sessions lack the segment anchors needed to map timestamps). Only call it to recover a recording whose transcript actually failed — re-running on a good one replaces the transcript with a fresh result and could worsen it if OpenAI is currently failing.",
     paramShape: {
@@ -518,6 +518,37 @@ export const TOOLS = [
         .string()
         .describe(
           "The recording_id shown in the bundle path after a recording_complete notification (e.g. the timestamp-based id)."
+        )
+    }
+  },
+  {
+    name: "upload_file",
+    description:
+      "Upload an arbitrary local file (by absolute path) to a web form's file input. The file must already exist on this machine (the same machine as the browser), so no temporary staging is needed — the real path is passed directly to the browser. Provide either 'ref' (element reference from read_page/find) or 'coordinate' ([x, y] viewport position) to identify the target, not both. Full file inputs (especially hidden ones) work best via 'ref'. Practical limit ~10MB per file. If no <input type=\"file\"> is found at the target, attempts a synthesized drag-and-drop of the file onto the element.",
+    paramShape: {
+      tabId: z
+        .number()
+        .describe(
+          "Tab ID where the target element is located. Must be a tab in current group. Use tabs_context_mcp first if you don't have a valid tab ID."
+        ),
+      path: z
+        .string()
+        .describe(
+          "Absolute path to the local file to upload (e.g., '/home/user/report.pdf'). The file must already exist on this machine. Practical limit ~10MB per file."
+        ),
+      ref: z
+        .string()
+        .optional()
+        .describe(
+          'Element reference ID from read_page/find tools (e.g., "ref_1"). Use for file inputs (especially hidden ones). Provide either ref or coordinate, not both.'
+        ),
+      coordinate: z
+        .array(z.number())
+        .min(2)
+        .max(2)
+        .optional()
+        .describe(
+          "Viewport coordinate [x, y] of the target element, used for drag-and-drop targets. Provide either ref or coordinate, not both."
         )
     }
   }

@@ -1362,6 +1362,92 @@ const toolHandlers = {
     return { content: [{ type: "text", text: synopsis }] };
   },
 
+  async upload_file(args) {
+    const { tabId, path, ref, coordinate } = args;
+    if (!(await isInGroup(tabId))) return { content: [{ type: "text", text: `Tab ${tabId} is not in the MCP group.` }] };
+    if (!path || typeof path !== "string") {
+      return { content: [{ type: "text", text: "upload_file requires 'path' — the absolute path to a local file (e.g. /home/user/report.pdf). The file must already exist on this machine." }] };
+    }
+    if (!ref && !coordinate) {
+      return { content: [{ type: "text", text: "upload_file requires either 'ref' (element reference from read_page/find) or 'coordinate' ([x, y] viewport position) to identify the target file input." }] };
+    }
+
+    await ensureAttached(tabId);
+
+    // Locate the target element in the page: by element ref, else by coordinate.
+    // From it, find the nearest file input (self or ancestor). The page returns
+    // enough info to decide between setFileInputFiles and a drag-and-drop.
+    const locator = ref
+      ? `window.__unblockedChrome?.resolveRef?.(${JSON.stringify(ref)})`
+      : `document.elementFromPoint(${coordinate[0]}, ${coordinate[1]})`;
+
+    const probe = await cdp(tabId, "Runtime.evaluate", {
+      expression: `(() => {
+        const el = ${locator};
+        if (!el || typeof el.closest !== "function") {
+          return { found: false, error: ${ref
+            ? '"Element reference not found — the page may have changed. Re-run read_page/find to get a fresh ref."'
+            : '"No element found at the given coordinate."'} };
+        }
+        const input = el.matches('input[type="file"]') ? el : el.closest('input[type="file"]');
+        const r = input ? input.getBoundingClientRect() : el.getBoundingClientRect();
+        return {
+          found: true,
+          isFileInput: !!input,
+          tag: el.tagName.toLowerCase(),
+          type: el.getAttribute ? el.getAttribute("type") : null,
+          center: r ? [Math.round(r.x + r.width / 2), Math.round(r.y + r.height / 2)] : null,
+        };
+      })()`,
+      returnByValue: true,
+    });
+    const probeVal = probe.result?.value;
+    if (!probeVal || !probeVal.found) {
+      return { content: [{ type: "text", text: probeVal?.error || `upload_file failed: could not resolve the target element in tab ${tabId}.` }] };
+    }
+
+    // The file is already on disk on the same machine as the browser, so pass the
+    // real path straight to CDP — no temp staging needed.
+    if (probeVal.isFileInput) {
+      const inputExpr = ref
+        ? `${locator}.closest('input[type="file"]')`
+        : `document.elementFromPoint(${coordinate[0]}, ${coordinate[1]}).closest('input[type="file"]')`;
+      const inputEval = await cdp(tabId, "Runtime.evaluate", { expression: inputExpr, returnByValue: false });
+      const objectId = inputEval?.result?.objectId;
+      if (!objectId) {
+        return { content: [{ type: "text", text: "upload_file failed: found the file input but could not resolve its DOM node." }] };
+      }
+      await cdp(tabId, "DOM.getDocument", {});
+      const { nodeId } = await cdp(tabId, "DOM.requestNode", { objectId });
+      await cdp(tabId, "DOM.setFileInputFiles", { nodeId, files: [path] });
+      return { content: [{ type: "text", text: `Attached ${path} to the file input.` }] };
+    }
+
+    // No file input at the target — fall back to a synthesized drag-and-drop of
+    // the file onto the element (CDP Input.dispatchDragEvent). This is best-effort
+    // and only meaningful if the page registered a drop handler for the file.
+    const [dx, dy] = probeVal.center || coordinate;
+    if (!dx && !dy) {
+      return { content: [{ type: "text", text: "upload_file failed: the target is not a file input and has no usable drop coordinates. Target the <input type=\"file\"> element directly via read_page/find and pass its ref." }] };
+    }
+
+    const data = {
+      items: [{ mimeType: "application/octet-stream", data: path }],
+      files: [path],
+      dragOperationsMask: 1, // copy
+    };
+    try {
+      for (const type of ["dragEnter", "dragOver"]) {
+        await cdp(tabId, "Input.dispatchDragEvent", { type, x: dx, y: dy, data });
+      }
+      await cdp(tabId, "Input.dispatchDragEvent", { type: "drop", x: dx, y: dy, data });
+      await cdp(tabId, "Input.dispatchDragEvent", { type: "dragEnd", x: dx, y: dy, data });
+    } catch (e) {
+      return { content: [{ type: "text", text: `upload_file failed: the target is not a file input and drag-and-drop errored (${e.message}). Target the <input type="file"> element directly via read_page/find and pass its ref.` }] };
+    }
+    return { content: [{ type: "text", text: `No file input was found at the target, so a drag-and-drop of ${path} was dispatched at (${dx}, ${dy}). If the page does not receive the file, target the <input type="file"> element directly via read_page/find and pass its ref.` }] };
+  },
+
   async gif_creator(args) {
     return { content: [{ type: "text", text: "GIF recording is not yet implemented in this extension." }] };
   },
