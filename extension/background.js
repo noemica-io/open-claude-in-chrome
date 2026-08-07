@@ -75,10 +75,14 @@ function connectNativeHost() {
         }
       } else if (msg.type === "trace_written") {
         // Reply from the native host after overwriting trace.json (retry path).
-        const resolve = recorder.pendingTraceWrites.get(String(msg.recording_id));
-        if (resolve) {
+        // Multiple retranscribe calls may target the same recording_id, so the
+        // pending map holds a Set of resolvers; settle them all.
+        const set = recorder.pendingTraceWrites.get(String(msg.recording_id));
+        if (set) {
           recorder.pendingTraceWrites.delete(String(msg.recording_id));
-          resolve(msg.ok);
+          for (const resolve of set) {
+            resolve(msg.ok);
+          }
         }
       }
     });
@@ -1338,7 +1342,7 @@ const recorder = {
   startedAt: null,
   deliveredIds: new Set(), // recording_ids Claude has acked
   pendingSaves: new Map(), // recording_id -> resolve (native-host disk write)
-  pendingTraceWrites: new Map(), // recording_id -> resolve (retry trace.json write)
+  pendingTraceWrites: new Map(), // recording_id -> Set<resolve> (retry trace.json write)
   imgSeq: 0, // frame counter for the images/ dir
   lastCapture: 0, // ts of last frame, to throttle to ≤1/sec
   lastVw: 0, // last viewport size seen (from content-script events), stamped
@@ -1800,16 +1804,33 @@ async function saveBundleToDisk(bundle) {
 // and schema are already on disk.
 async function writeTraceToDisk(recording_id, trace) {
   if (!nativePort) return false;
+  const id = String(recording_id);
   const done = new Promise((resolve) => {
-    recorder.pendingTraceWrites.set(String(recording_id), resolve);
+    // A Set, not a single slot: concurrent retranscribe calls for the same
+    // recording_id must each get settled, otherwise the first caller's promise
+    // hangs forever when the second overwrites the map entry.
+    let set = recorder.pendingTraceWrites.get(id);
+    if (!set) {
+      set = new Set();
+      recorder.pendingTraceWrites.set(id, set);
+    }
+    set.add(resolve);
     setTimeout(() => {
-      if (recorder.pendingTraceWrites.delete(String(recording_id))) resolve(false);
+      const s = recorder.pendingTraceWrites.get(id);
+      if (s) {
+        recorder.pendingTraceWrites.delete(id);
+        for (const r of s) r(false);
+      }
     }, 8000);
   });
   try {
     nativePort.postMessage({ type: "write_trace", recording_id, trace });
   } catch {
-    recorder.pendingTraceWrites.delete(String(recording_id));
+    const s = recorder.pendingTraceWrites.get(id);
+    if (s) {
+      recorder.pendingTraceWrites.delete(id);
+      for (const r of s) r(false);
+    }
     return false;
   }
   return await done;

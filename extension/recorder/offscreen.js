@@ -138,7 +138,11 @@ function startSegment() {
   mr.ondataavailable = async (e) => {
     if (e.data && e.data.size) {
       const buf = await e.data.arrayBuffer();
-      await put("audio", { seg: index, bytes: buf, at: Date.now() });
+      // Tag the row with the recording it belongs to. The audio store is only
+      // cleared when the NEXT recording starts, so without this tag a retranscribe
+      // of an older recording would map its segEpochs onto a newer recording's
+      // bytes and silently overwrite the older trace.json with the wrong transcript.
+      await put("audio", { recording_id: session.recording_id, seg: index, bytes: buf, at: Date.now() });
     }
   };
   mr.start(AUDIO_TIMESLICE_MS);
@@ -423,7 +427,13 @@ async function retranscribe(recording_id, apiKey) {
   if (!row.segEpochs || !row.segEpochs.length)
     return { ok: false, error: "recording predates this retry path (missing segment anchors)" };
 
-  const audioRows = await getAll("audio");
+  // Only this recording's own audio. The store also holds any NEWER recording's
+  // bytes until that one starts recording clears it, so without the filter a
+  // retranscribe of an older recording would transcribe the wrong audio and
+  // overwrite the older recording's trace.json with a mismatched transcript.
+  // (A pre-fix target row has no recording_id and is filtered out — safe failure,
+  // and such recordings are already rejected by the segEpochs guard above.)
+  const audioRows = (await getAll("audio")).filter((r) => r.recording_id === recording_id);
   const bySeg = new Map();
   for (const r of audioRows) {
     const k = r.seg ?? 0;
