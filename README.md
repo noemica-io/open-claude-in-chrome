@@ -34,7 +34,8 @@
 
 ---
 
-The official [Claude in Chrome](https://code.claude.com/docs/en/chrome) extension gives Claude Code full browser automation — as long as you stay within Anthropic's allowlist of "safe" sites. Open Claude in Chrome is a clean-room reimplementation that strips the restrictions while keeping all 18 MCP tools and matching the official extension's performance.
+The official [Claude in Chrome](https://code.claude.com/docs/en/chrome) extension gives Claude Code full browser automation — as long as you stay within Anthropic's allowlist of "safe" sites. Open Claude in Chrome is a clean-room reimplementation that strips the restrictions while keeping all 20 MCP tools and matching the official extension's performance.
+
 
 ## What's Different
 
@@ -43,8 +44,9 @@ The official [Claude in Chrome](https://code.claude.com/docs/en/chrome) extensio
 | **Domain blocklist** | 58 blocked domains across 11 categories | No blocklist. Navigate anywhere. |
 | **Browser support** | Chrome and Edge only | Any Chromium browser (Chrome, Edge, Brave, Arc, Opera, Vivaldi, etc.) |
 | **Source code** | Closed source | Open source (MIT) |
-| **Tools** | 18 MCP tools | Same 18 MCP tools |
+| **Tools** | 20 MCP tools | Same 20 MCP tools |
 | **Performance** | Baseline | Statistically indistinguishable cold, and [measurably better](#does-it-actually-match-the-official-extension) with the techniques the open harness allows |
+
 
 ### Blocked Domains in the Official Extension
 
@@ -124,7 +126,8 @@ Claude Code <--stdio MCP--> server-{codemode,hybrid}.js
 ```
 
 Three components:
-1. **Extension** — Manifest V3 with CDP-based browser automation (all 18 tools)
+1. **Extension** — Manifest V3 with CDP-based browser automation (all 20 tools)
+
 2. **MCP Server** — Node.js process started by Claude Code, exposes tools via MCP
 3. **Native Messaging Host** — Bridge between the MCP server and the extension
 
@@ -132,7 +135,8 @@ The codemode and hybrid servers add a fourth piece — a `wrangler dev` subproce
 
 ## Installation
 
-One flow, top to bottom, turns everything on — all 18 browser tools,
+One flow, top to bottom, turns everything on — all 20 browser tools,
+
 `execute_code`, and the imitation-learning recorder.
 
 ### Prerequisites
@@ -185,7 +189,8 @@ recording:
 
 ### Step 6: Add the server to Claude Code
 
-The **hybrid** server exposes everything: all 18 tools directly, `execute_code`
+The **hybrid** server exposes everything: all 20 tools directly, `execute_code`
+
 alongside (the model picks per call), and the recording channel.
 
 ```bash
@@ -280,12 +285,14 @@ The hybrid server from Step 6 is the superset and the one the install steps
 assume. Two leaner variants exist if you want them, and they can coexist —
 register more than one.
 
-**Default** — the 18 tools, nothing else:
+**Default** — the 20 tools, nothing else:
+
 ```bash
 claude mcp add open-claude-in-chrome -- node /absolute/path/to/host/mcp-server.js
 ```
 
-**Code mode** — three tools: `execute_code`, `screenshot`, `zoom`. The model writes JS that calls `chrome.*` (the typed API for all 18 tools) in a sandboxed Cloudflare Worker, collapsing multi-step flows into one round trip:
+**Code mode** — three tools: `execute_code`, `screenshot`, `zoom`. The model writes JS that calls `chrome.*` (the typed API for all 20 tools) in a sandboxed Cloudflare Worker, collapsing multi-step flows into one round trip:
+
 ```bash
 claude mcp add open-claude-in-chrome-codemode -- node /absolute/path/to/host/codemode/server-codemode.js
 ```
@@ -411,7 +418,8 @@ If the model still uses direct tools on the second submission, that's a signal t
 
 ## Available Tools
 
-All 18 tools, identical to Claude in Chrome:
+All 20 tools, identical to Claude in Chrome:
+
 
 | Tool | Description |
 |------|-------------|
@@ -433,6 +441,7 @@ All 18 tools, identical to Claude in Chrome:
 | `shortcuts_execute` | Run shortcut (stub) |
 | `switch_browser` | Switch browser (stub) |
 | `update_plan` | Present plan (auto-approved) |
+| `retranscribe_recording` | Re-run transcription for a failed recording (most recent) |
 
 ## Updating After Code Changes
 
