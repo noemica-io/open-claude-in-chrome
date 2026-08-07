@@ -99,7 +99,7 @@ function connectNativeHost() {
           recorder.pendingTraceWrites.delete(String(msg.write_id));
           resolve(msg.ok);
         }
-} else if (msg.type === "screenshot_saved") {
+      } else if (msg.type === "screenshot_saved") {
         // Reply from the native host after writing a screenshot to disk
         // (save_to_disk on the computer tool's screenshot action).
         const pending = screenshotSaves.get(String(msg.id));
@@ -441,7 +441,7 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
     recordNetworkEvent(tabId, params.requestId, (existing) => ({
       url: params.request.url,
       method: params.request.method,
-type: params.type || (existing && existing.type) || "Other",
+      type: params.type || (existing && existing.type) || "Other",
       status: (existing && existing.status) || 0,
       timestamp: (existing && existing.timestamp) || Date.now(),
     }));
@@ -889,6 +889,13 @@ const toolHandlers = {
       // a stale counter) for the rest of its lifetime. read_network_requests
       // re-enables the domain on demand, so this is safe to tear down here.
       cdp(tabId, "Network.disable").catch(() => {});
+      // ensureDomain() gates on attachedTabs.enabledDomains; if a prior
+      // read_network_requests added "Network" to that set, disabling the domain
+      // here while leaving the set entry would make a LATER ensureDomain skip
+      // re-enabling (it thinks the domain is still on), silently breaking
+      // network capture. Drop it so the next caller re-enables on demand.
+      const st = attachedTabs.get(tabId);
+      if (st) st.enabledDomains.delete("Network");
       networkInflight.delete(tabId);
     }
 
@@ -1000,7 +1007,9 @@ const toolHandlers = {
         await activateTab(tabId);
         if (!coordinate) return { content: [{ type: "text", text: "coordinate is required for hover" }] };
         await dispatchMouse(tabId, "mouseMoved", coordinate[0], coordinate[1], { modifiers });
-        await sleep(200);
+        // Let the page apply the hover state; Brave additionally needs a settle
+        // window, Chrome doesn't.
+        if (await isBrave()) await sleep(200);
         return { content: [{ type: "text", text: `Hovered at (${coordinate[0]}, ${coordinate[1]})` }] };
       }
 
@@ -1014,6 +1023,7 @@ const toolHandlers = {
 
       case "key": {
         if (!args.text) return { content: [{ type: "text", text: "text is required for key action" }] };
+        await activateTab(tabId);
         await ensureAttached(tabId);
         const repeat = Math.min(args.repeat || 1, 100);
         // Parse space-separated key combos
@@ -1035,7 +1045,9 @@ const toolHandlers = {
               code: resolvedKey.length === 1 ? `Key${resolvedKey.toUpperCase()}` : resolvedKey,
               modifiers: keyMod,
             });
-            await sleep(30);
+            // Brave's debugger pipeline needs a settle window between key
+            // events; Chrome acks instantly, so the sleep is pure latency there.
+            if (await isBrave()) await sleep(30);
           }
         }
         return { content: [{ type: "text", text: `Pressed ${repeat} key${repeat > 1 ? "s" : ""}: ${args.text}` }] };
@@ -1056,7 +1068,9 @@ const toolHandlers = {
           deltaY,
           modifiers,
         }, { awaitAck: false });
-        await sleep(300);
+        // Let the compositor repaint before the confirmation screenshot; Chrome
+        // repaints fast, Brave needs a longer settle window.
+        await sleep((await isBrave()) ? 300 : 100);
         // The scroll already happened; the confirmation screenshot is best-effort.
         // On a heavy page still re-rendering after the scroll, the capture can
         // block, so bound it and degrade to a text-only result rather than
@@ -1088,7 +1102,8 @@ const toolHandlers = {
             expression: `window.scrollTo(${coordinate[0]}, ${coordinate[1]})`,
           });
         }
-        await sleep(300);
+        // Let the page repaint the scroll; Chrome is fast, Brave slower.
+        await sleep((await isBrave()) ? 300 : 100);
         return { content: [{ type: "text", text: `Scrolled to target` }] };
       }
 
@@ -1106,16 +1121,16 @@ const toolHandlers = {
         const [sx, sy] = args.start_coordinate;
         const [ex, ey] = coordinate;
         await dispatchMouse(tabId, "mouseMoved", sx, sy, { modifiers });
-        await sleep(50);
+        if (await isBrave()) await sleep(50);
         await dispatchMouse(tabId, "mousePressed", sx, sy, { button: "left", modifiers });
-        await sleep(50);
+        if (await isBrave()) await sleep(50);
         // Move in steps
         const steps = 10;
         for (let i = 1; i <= steps; i++) {
           const mx = sx + ((ex - sx) * i) / steps;
           const my = sy + ((ey - sy) * i) / steps;
           await dispatchMouse(tabId, "mouseMoved", mx, my, { modifiers });
-          await sleep(20);
+          if (await isBrave()) await sleep(20);
         }
         await dispatchMouse(tabId, "mouseReleased", ex, ey, { button: "left", modifiers });
         return { content: [{ type: "text", text: `Dragged from (${sx}, ${sy}) to (${ex}, ${ey})` }] };
@@ -1347,7 +1362,14 @@ const toolHandlers = {
 
   async upload_image(args) {
     const { imageId, tabId, ref, coordinate, filename = "image.png" } = args;
+    // coordinate arrives as an array [x, y] (matching computer's coordinate[0]/[1]
+    // and the z.array schema); normalize to cx/cy so the point-lookup works.
+    const cx = Array.isArray(coordinate) ? coordinate[0] : coordinate?.x;
+    const cy = Array.isArray(coordinate) ? coordinate[1] : coordinate?.y;
     if (!(await isInGroup(tabId))) return { content: [{ type: "text", text: `Tab ${tabId} is not in the MCP group.` }] };
+    if (!ref && !coordinate) {
+      return { content: [{ type: "text", text: "upload_image requires either 'ref' (element reference from read_page/find) or 'coordinate' ([x, y] viewport position) to identify the target file input." }] };
+    }
 
     const base64 = screenshotStore.get(imageId);
     if (!base64) {
@@ -1361,9 +1383,13 @@ const toolHandlers = {
     await ensureDomain(tabId, "DOM");
 
     const fileInputExpr = ref
-      ? `window.__unblockedChrome?.resolveRef?.("${ref}")`
+      // JSON.stringify embeds ref as a safe JS string literal (matching
+      // upload_file) so a crafted ref can't break out of the quotes and run
+      // page-context JS. cx/cy are coerced with Number() so a non-numeric value
+      // becomes NaN (elementFromPoint treats it as (0,0)) instead of raw code.
+      ? `window.__unblockedChrome?.resolveRef?.(${JSON.stringify(ref)})`
       : `(() => {
-          const el = document.elementFromPoint(${coordinate.x}, ${coordinate.y});
+          const el = document.elementFromPoint(${Number(cx)}, ${Number(cy)});
           return el?.closest?.("input[type=file]") || null;
         })()`;
 
@@ -1381,7 +1407,7 @@ const toolHandlers = {
     });
     const cls = detect.result?.value;
     if (cls?.missing) {
-      const where = ref ? `ref=${ref}` : `coordinate (${coordinate.x}, ${coordinate.y})`;
+      const where = ref ? `ref=${ref}` : `coordinate (${cx}, ${cy})`;
       return { content: [{ type: "text", text: `No file input found at ${where}. Drag & drop of a real file isn't supported here; point at an <input type=file>.` }] };
     }
     if (cls?.notFile) {
@@ -1407,7 +1433,7 @@ const toolHandlers = {
     const objRes = await cdp(tabId, "Runtime.evaluate", { expression: fileInputExpr, returnByValue: false });
     const objectId = objRes.result?.objectId;
     if (!objectId) {
-      return { content: [{ type: "text", text: `Could not resolve the file input node for ${ref || `(${coordinate.x}, ${coordinate.y})`}.` }] };
+      return { content: [{ type: "text", text: `Could not resolve the file input node for ${ref || `(${cx}, ${cy})`}.` }] };
     }
     const node = await cdp(tabId, "DOM.requestNode", { objectId });
     await cdp(tabId, "DOM.setFileInputFiles", { nodeId: node.nodeId, files: [tempPath] });
@@ -1424,6 +1450,9 @@ const toolHandlers = {
       return { content: [{ type: "text", text: "recording_id is required." }] };
 
     const apiKey = await getApiKey();
+    // The offscreen document owns the durable audio buffer; make sure it's alive
+    // before asking it to retranscribe, or the message is dropped (res undefined).
+    await ensureOffscreen();
     const res = await chrome.runtime.sendMessage({
       __ocic_offscreen: true,
       cmd: "retranscribe",
@@ -2087,7 +2116,11 @@ let traceWriteSeq = 0;
 
 async function writeTraceToDisk(recording_id, trace) {
   if (!nativePort) return false;
-  const writeId = ++traceWriteSeq;
+  // String() on both the key and the reply lookup (String(msg.write_id)) so the
+  // ack settles the promise: a numeric key vs string lookup would never match
+  // in a JS Map (1 !== "1") and every retranscribe would stall its full 8s
+  // timeout and report a write failure even though trace.json was written.
+  const writeId = String(++traceWriteSeq);
   const done = new Promise((resolve) => {
     // Keyed by writeId, not recording_id: each call gets its own slot so a
     // timeout or reply settles exactly this call, never a concurrent sibling.

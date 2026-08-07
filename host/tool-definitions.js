@@ -483,7 +483,7 @@ export const TOOLS = [
   {
     name: "upload_image",
     description:
-      "Upload a previously captured screenshot or user-uploaded image to a file input or drag & drop target. Supports two approaches: (1) ref - for targeting specific elements, especially hidden file inputs, (2) coordinate - for drag & drop to visible locations like Google Docs. Provide either ref or coordinate, not both.",
+      "Upload a previously captured screenshot or user-uploaded image to a file input. Supports two ways to identify the target: (1) ref - target a specific element, especially a hidden file input; (2) coordinate - the nearest <input type=\"file\"> under a viewport point. Provide either ref or coordinate, not both. The target must be a file input; drag & drop is not supported.",
     paramShape: {
       imageId: z
         .string()

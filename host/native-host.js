@@ -173,12 +173,27 @@ function handleSaveRecording(msg) {
 // from the retranscribe path). Same containment as the other handlers.
 function handleWriteTrace(msg) {
   try {
+    // Contain the write to the bundle: no absolute paths, no traversal (same
+    // guard as handleSaveAudio).
+    const rid = String(msg.recording_id || "unknown").replace(/\\/g, "/");
+    if (rid.startsWith("/") || rid.split("/").includes("..")) {
+      // Guarded path: reply with an error rather than silently returning, so
+      // the caller settles its promise instead of waiting out its timeout.
+      writeNativeMessage({
+        type: "trace_written",
+        recording_id: msg.recording_id,
+        write_id: msg.write_id,
+        ok: false,
+        error: "invalid recording_id"
+      });
+      return;
+    }
     const dir = path.join(
       os.homedir(),
       ".config",
       "open-claude-in-chrome",
       "recordings",
-      String(msg.recording_id || "unknown")
+      rid
     );
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(
@@ -254,28 +269,6 @@ function handleSaveScreenshot(msg) {
   }
 }
 
-// Stage an in-memory screenshot as a real temp file so the extension can
-// attach it to a file input via CDP DOM.setFileInputFiles. The extension holds
-// screenshots as base64 in a Map (never on disk), but setFileInputFiles needs
-// a path, so we materialize the bytes here and return the absolute path.
-// Reply is keyed by msg.id so the extension can correlate it to its request.
-function handleWriteTempFile(msg) {
-  const reply = (payload) => writeNativeMessage({ id: msg.id, type: "temp_file_written", ...payload });
-  try {
-    const dir = path.join(os.homedir(), ".config", "open-claude-in-chrome", "tmp");
-    fs.mkdirSync(dir, { recursive: true });
-    // Sanitize the requested name: no path separators, no traversal.
-    const name = String(msg.filename || "upload.png").replace(/[^\w.\-]/g, "_");
-    const file = path.join(dir, `${Date.now()}_${name}`);
-    const b64 = String(msg.dataUrl || "").replace(/^data:[^;]+;base64,/, "");
-    if (!b64) return reply({ ok: false, error: "no data" });
-    fs.writeFileSync(file, Buffer.from(b64, "base64"));
-    reply({ ok: true, result: file });
-  } catch (e) {
-    reply({ ok: false, error: String(e && e.message) });
-  }
-}
-
 // Write a full screenshot to a stable, user-visible location
 // (~/.config/open-claude-in-chrome/screenshots/<timestamp>.jpg) so Claude Code
 // can open the absolute path. Unlike save_screenshot (fire-and-forget), this
@@ -297,6 +290,42 @@ function handleSaveScreenshotToDisk(msg) {
     writeNativeMessage({ type: "screenshot_saved", id: msg.id, path: file, ok: true });
   } catch (e) {
     writeNativeMessage({ type: "screenshot_saved", id: msg.id, ok: false, error: String(e && e.message) });
+  }
+}
+
+// Stage an in-memory screenshot as a real temp file so the extension can
+// attach it to a file input via CDP DOM.setFileInputFiles. The extension holds
+// screenshots as base64 in a Map (never on disk), but setFileInputFiles needs
+// a path, so we materialize the bytes here and return the absolute path.
+// Reply is keyed by msg.id so the extension can correlate it to its request.
+function handleWriteTempFile(msg) {
+  const reply = (payload) => writeNativeMessage({ id: msg.id, type: "temp_file_written", ...payload });
+  try {
+    const dir = path.join(os.homedir(), ".config", "open-claude-in-chrome", "tmp");
+    fs.mkdirSync(dir, { recursive: true });
+    // Sanitize the requested name: no path separators, no traversal.
+    const name = String(msg.filename || "upload.png").replace(/[^\w.\-]/g, "_");
+    const file = path.join(dir, `${Date.now()}_${name}`);
+    const b64 = String(msg.dataUrl || "").replace(/^data:[^;]+;base64,/, "");
+    if (!b64) return reply({ ok: false, error: "no data" });
+    fs.writeFileSync(file, Buffer.from(b64, "base64"));
+    // Best-effort GC: staged uploads have a "<epoch>_<name>" prefix; prune only
+    // files WE staged (that prefix) and only those older than a day, so we never
+    // delete anything another process put in the shared tmp dir. Cap the scan
+    // so a giant directory can't stall this request.
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    try {
+      let scanned = 0;
+      for (const f of fs.readdirSync(dir)) {
+        if (!/^\d+_/.test(f)) continue; // not ours
+        if (++scanned > 200) break; // bound the sync scan
+        const p = path.join(dir, f);
+        if (fs.statSync(p).mtimeMs < cutoff) fs.unlinkSync(p);
+      }
+    } catch { /* best-effort */ }
+    reply({ ok: true, result: file });
+  } catch (e) {
+    reply({ ok: false, error: String(e && e.message) });
   }
 }
 
