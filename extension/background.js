@@ -16,6 +16,9 @@ const attachedTabs = new Map(); // tabId -> { enabledDomains: Set }
 const consoleMessages = new Map(); // tabId -> [{level, text, timestamp, url}]
 const networkRequests = new Map(); // tabId -> [{url, method, status, type, timestamp}]
 const networkInflight = new Map(); // tabId -> active request count (for networkidle wait)
+// tabId -> Map<requestId, record> — lets responseReceived augment the entry
+// created by requestWillBeSent instead of recording each request twice.
+const networkByRequestId = new Map();
 const screenshotStore = new Map(); // imageId -> base64
 
 let heartbeatTimer = null;
@@ -324,6 +327,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   consoleMessages.delete(tabId);
   networkRequests.delete(tabId);
   networkInflight.delete(tabId);
+  networkByRequestId.delete(tabId);
 });
 
 // Handle user dismissing debugger bar
@@ -365,32 +369,33 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
     consoleMessages.set(tabId, msgs);
   }
 
+  // Merge CDP network events into one record per requestId so the reader
+  // sees each request once. requestWillBeSent carries the real method + url;
+  // responseReceived augments that same record with the status. A requestId
+  // is reused across redirect hops, so a later event updates the existing
+  // record in place rather than appending a duplicate.
   if (method === "Network.responseReceived" && params.response) {
-    const reqs = networkRequests.get(tabId) || [];
-    reqs.push({
-      url: params.response.url,
-      method: params.response.requestHeaders ? "?" : "GET",
+    recordNetworkEvent(tabId, params.requestId, (existing) => ({
       status: params.response.status,
       statusText: params.response.statusText,
-      type: params.type || "Other",
       mimeType: params.response.mimeType,
-      timestamp: Date.now(),
-    });
-    if (reqs.length > 1000) reqs.splice(0, reqs.length - 1000);
-    networkRequests.set(tabId, reqs);
+      type: params.type || (existing && existing.type) || "Other",
+      // method + url come from requestWillBeSent; fall back to the old
+      // heuristic only when no earlier event was seen for this id.
+      method: (existing && existing.method) || (params.response.requestHeaders ? "?" : "GET"),
+      url: (existing && existing.url) || params.response.url,
+      timestamp: (existing && existing.timestamp) || Date.now(),
+    }));
   }
 
   if (method === "Network.requestWillBeSent" && params.request) {
-    const reqs = networkRequests.get(tabId) || [];
-    reqs.push({
+    recordNetworkEvent(tabId, params.requestId, (existing) => ({
       url: params.request.url,
       method: params.request.method,
-      status: 0,
-      type: params.type || "Other",
-      timestamp: Date.now(),
-    });
-    if (reqs.length > 1000) reqs.splice(0, reqs.length - 1000);
-    networkRequests.set(tabId, reqs);
+type: params.type || (existing && existing.type) || "Other",
+      status: (existing && existing.status) || 0,
+      timestamp: (existing && existing.timestamp) || Date.now(),
+    }));
     // Track in-flight so a networkidle wait can detect when a page settles.
     // Keyed by requestId: a redirect re-emits requestWillBeSent for the SAME
     // requestId (with a redirectResponse) and never separately finishes, so
@@ -413,6 +418,40 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
     if (ids) ids.delete(params.requestId);
   }
 });
+
+// Append (or update) one entry for a network event, keyed by requestId.
+// makeRecord(existing) returns the fields to merge; when a record already
+// exists for the id (a duplicate event or a redirect hop) it is patched
+// in place so the request appears exactly once in the reader's list.
+function recordNetworkEvent(tabId, requestId, makeRecord) {
+  const reqs = networkRequests.get(tabId) || [];
+  let byId = networkByRequestId.get(tabId);
+  if (!byId) {
+    byId = new Map();
+    networkByRequestId.set(tabId, byId);
+  }
+
+  const existing = byId.get(requestId);
+  if (existing) {
+    Object.assign(existing, makeRecord(existing));
+    return;
+  }
+
+  const record = makeRecord(null);
+  reqs.push(record);
+  byId.set(requestId, record);
+
+  if (reqs.length > 1000) {
+    const evicted = reqs.splice(0, reqs.length - 1000);
+    // Drop the requestId lookups for evicted records so a reused id does
+    // not resurrect a stale entry.
+    const evictedSet = new Set(evicted);
+    for (const [id, rec] of byId) {
+      if (evictedSet.has(rec)) byId.delete(id);
+    }
+  }
+  networkRequests.set(tabId, reqs);
+}
 
 // --- Key code mapping ---
 const KEY_MAP = {
@@ -1161,6 +1200,7 @@ const toolHandlers = {
 
     if (clear) {
       networkRequests.set(tabId, []);
+      networkByRequestId.set(tabId, new Map());
     }
 
     if (reqs.length === 0) {
