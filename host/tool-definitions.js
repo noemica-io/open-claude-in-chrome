@@ -167,6 +167,12 @@ export const TOOLS = [
         .optional()
         .describe(
           'The text to type (for `type` action) or the key(s) to press (for `key` action). For `key` action: Provide space-separated keys (e.g., "Backspace Backspace Delete"). Supports keyboard shortcuts using the platform\'s modifier key (use "cmd" on Mac, "ctrl" on Windows/Linux, e.g., "cmd+a" or "ctrl+a" for select all).'
+        ),
+      save_to_disk: z
+        .boolean()
+        .optional()
+        .describe(
+          "Optional, `screenshot` action only only. Set true to write the captured screenshot to disk (under ~/.config/open-claude-in-chrome/screenshots/) and return its absolute path in the result so it can be opened or shared. Default false."
         )
     }
   },

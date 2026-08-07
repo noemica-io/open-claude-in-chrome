@@ -20,6 +20,7 @@ const networkInflight = new Map(); // tabId -> active request count (for network
 // created by requestWillBeSent instead of recording each request twice.
 const networkByRequestId = new Map();
 const screenshotStore = new Map(); // imageId -> base64
+const screenshotSaves = new Map(); // reqId -> { resolve, reject } for save_to_disk
 
 let heartbeatTimer = null;
 
@@ -85,6 +86,15 @@ function connectNativeHost() {
         if (resolve) {
           recorder.pendingTraceWrites.delete(String(msg.write_id));
           resolve(msg.ok);
+        }
+} else if (msg.type === "screenshot_saved") {
+        // Reply from the native host after writing a screenshot to disk
+        // (save_to_disk on the computer tool's screenshot action).
+        const pending = screenshotSaves.get(String(msg.id));
+        if (pending) {
+          screenshotSaves.delete(String(msg.id));
+          if (msg.ok && msg.path) pending.resolve(msg.path);
+          else pending.reject(new Error(msg.error || "failed to save screenshot"));
         }
       } else if (msg.id && pendingNative.has(msg.id)) {
         // Generic reply to a nativeRequest() (e.g. write_temp_file). The host
@@ -583,6 +593,29 @@ async function takeScreenshot(tabId) {
   return { base64, imageId };
 }
 
+// Write a captured base64 screenshot to disk via the native host and resolve
+// with the absolute path. Used when the computer tool's screenshot action is
+// called with save_to_disk: true. The native host replies with `screenshot_saved`.
+function writeScreenshotToDisk(base64) {
+  if (!nativePort) return Promise.reject(new Error("native host not connected"));
+  const id = `shot_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  return new Promise((resolve, reject) => {
+    screenshotSaves.set(id, { resolve, reject });
+    nativePort.postMessage({
+      type: "save_screenshot_to_disk",
+      id,
+      dataUrl: "data:image/jpeg;base64," + base64,
+    });
+    // Guard against a dead native host so callers never hang forever.
+    setTimeout(() => {
+      if (screenshotSaves.has(id)) {
+        screenshotSaves.delete(id);
+        reject(new Error("timed out waiting for native host to save screenshot"));
+      }
+    }, 5000);
+  });
+}
+
 // --- Mouse helpers ---
 // Brave withholds the debugger ack for synthesized mouse events (a constant
 // ~5s flush for move/press/release; mouseWheel is never acked at all) while
@@ -862,9 +895,20 @@ const toolHandlers = {
           });
           if (vp?.result?.value) dims = vp.result.value;
         } catch {}
+        // save_to_disk: write the captured image to disk and report the path so
+        // Claude Code can open it. Best-effort — never fails the screenshot.
+        let saveNote = "";
+        if (args.save_to_disk) {
+          try {
+            const path = await writeScreenshotToDisk(base64);
+            saveNote = `\nSaved to disk: ${path}`;
+          } catch (e) {
+            saveNote = `\n(Unable to save to disk: ${e.message})`;
+          }
+        }
         return {
           content: [
-            { type: "text", text: `Successfully captured screenshot (${dims}, jpeg) - ID: ${imageId}` },
+            { type: "text", text: `Successfully captured screenshot (${dims}, jpeg) - ID: ${imageId}${saveNote}` },
             { type: "image", data: base64, mimeType: "image/jpeg" },
           ],
         };

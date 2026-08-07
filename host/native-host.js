@@ -276,6 +276,30 @@ function handleWriteTempFile(msg) {
   }
 }
 
+// Write a full screenshot to a stable, user-visible location
+// (~/.config/open-claude-in-chrome/screenshots/<timestamp>.jpg) so Claude Code
+// can open the absolute path. Unlike save_screenshot (fire-and-forget), this
+// replies with the written path so the caller can report it to the agent.
+function handleSaveScreenshotToDisk(msg) {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const dir = path.join(
+    os.homedir(),
+    ".config",
+    "open-claude-in-chrome",
+    "screenshots"
+  );
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const b64 = String(msg.dataUrl || "").replace(/^data:image\/\w+;base64,/, "");
+    if (!b64) throw new Error("empty image data");
+    const file = path.join(dir, `${timestamp}.jpg`);
+    fs.writeFileSync(file, Buffer.from(b64, "base64"));
+    writeNativeMessage({ type: "screenshot_saved", id: msg.id, path: file, ok: true });
+  } catch (e) {
+    writeNativeMessage({ type: "screenshot_saved", id: msg.id, ok: false, error: String(e && e.message) });
+  }
+}
+
 // --- Main: bridge stdin (from extension) <-> TCP (to MCP server) ---
 
 let stdinBuffer = Buffer.alloc(0);
@@ -293,6 +317,10 @@ process.stdin.on("data", (chunk) => {
     }
     if (msg && msg.type === "save_screenshot") {
       handleSaveScreenshot(msg);
+      continue;
+    }
+    if (msg && msg.type === "save_screenshot_to_disk") {
+      handleSaveScreenshotToDisk(msg);
       continue;
     }
     if (msg && msg.type === "save_audio") {
