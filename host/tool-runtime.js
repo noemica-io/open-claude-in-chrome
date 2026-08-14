@@ -443,7 +443,31 @@ function startClientMode() {
         reject(new Error("Primary MCP server disconnected"));
       }
       pendingRequests.clear();
-      setTimeout(connect, 2000);
+      // The primary is gone. Reconnecting forever to a port nobody is
+      // listening on strands this process permanently (every tool call
+      // then fails with "Lost connection to primary MCP server"), so try
+      // to take the port ourselves; only fall back to reconnecting if
+      // another process wins the election first.
+      setTimeout(() => {
+        if (mode !== "client" || primarySocket) return;
+        const onPromoteError = (err) => {
+          if (err.code === "EADDRINUSE") {
+            connect(); // another process became primary; join it
+          } else {
+            process.stderr.write(`Self-promotion failed: ${err.message}\n`);
+            setTimeout(connect, 2000);
+          }
+        };
+        tcpServer.once("error", onPromoteError);
+        tcpServer.listen(TCP_PORT, "127.0.0.1", () => {
+          tcpServer.removeListener("error", onPromoteError);
+          mode = "primary";
+          writePidfile();
+          process.stderr.write(
+            `Primary disconnected — promoted self to primary on :${TCP_PORT}\n`
+          );
+        });
+      }, 2000);
     });
   }
 
