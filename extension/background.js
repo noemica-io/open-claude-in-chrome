@@ -1586,6 +1586,18 @@ const toolHandlers = {
     // dragend event fires automatically. Sending dragEnd would raise a protocol
     // error AFTER drop already succeeded, making the tool report failure on an
     // actually-successful upload.
+    //
+    // Chromium gates synthetic drag dispatches behind drag interception being
+    // enabled (the same flag Puppeteer sets before its drag/drop flow); without
+    // it, dispatchDragEvent can be rejected as a no-op. Enable it first and
+    // always restore it afterwards so we don't alter the page's handling of
+    // real user drags. Best-effort: on a browser that doesn't support the
+    // command, ignore the failure and still attempt the dispatch.
+    let interceptEnabled = false;
+    try {
+      await cdp(tabId, "Input.setInterceptDrags", { enabled: true });
+      interceptEnabled = true;
+    } catch { /* not supported on this browser version; proceed anyway */ }
     try {
       for (const type of ["dragEnter", "dragOver"]) {
         await cdp(tabId, "Input.dispatchDragEvent", { type, x: dx, y: dy, data });
@@ -1593,6 +1605,8 @@ const toolHandlers = {
       await cdp(tabId, "Input.dispatchDragEvent", { type: "drop", x: dx, y: dy, data });
     } catch (e) {
       return { content: [{ type: "text", text: `upload_file failed: the target is not a file input and drag-and-drop errored (${e.message}). Target the <input type="file"> element directly via read_page/find and pass its ref.` }] };
+    } finally {
+      if (interceptEnabled) cdp(tabId, "Input.setInterceptDrags", { enabled: false }).catch(() => {});
     }
     return { content: [{ type: "text", text: `No file input was found at the target, so a drag-and-drop of ${path} was dispatched at (${dx}, ${dy}). If the page does not receive the file, target the <input type="file"> element directly via read_page/find and pass its ref.` }] };
   },
