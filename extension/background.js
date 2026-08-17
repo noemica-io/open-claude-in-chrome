@@ -1361,7 +1361,10 @@ const toolHandlers = {
   },
 
   async upload_image(args) {
-    const { imageId, tabId, ref, coordinate, filename = "image.png" } = args;
+    // Screenshots are captured as JPEG (takeScreenshot uses format:"jpeg"),
+    // so the staged temp file must default to .jpg - a .png name with JPEG
+    // bytes gets rejected by servers that validate extension/MIME.
+    const { imageId, tabId, ref, coordinate, filename = "image.jpg" } = args;
     // coordinate arrives as an array [x, y] (matching computer's coordinate[0]/[1]
     // and the z.array schema); normalize to cx/cy so the point-lookup works.
     const cx = Array.isArray(coordinate) ? coordinate[0] : coordinate?.x;

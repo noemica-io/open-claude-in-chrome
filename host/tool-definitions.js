@@ -511,7 +511,7 @@ export const TOOLS = [
         .string()
         .optional()
         .describe(
-          'Optional filename for the uploaded file (default: "image.png")'
+          'Optional filename for the uploaded file (default: "image.jpg"; screenshots are JPEG)'
         )
     }
   },

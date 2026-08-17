@@ -332,8 +332,10 @@ function handleWriteTempFile(msg) {
 // Read a local file's bytes for upload_file's drag-and-drop fallback:
 // Input.dispatchDragEvent needs the file CONTENT as base64 (the extension
 // can't read local files itself). Chrome caps native-messaging host->extension
-// messages at 1MB, so bound the size and let larger files use the
-// setFileInputFiles path instead of dying mid-message.
+// messages at 1MB (1024*1024 bytes on the wire). Base64 inflates bytes by 4/3,
+// so cap the source at 700 KiB: 700*1024*4/3 ≈ 955 KiB of base64, leaving
+// ~69 KiB for the JSON wrapper. At 768 KiB the base64 alone is exactly 1 MiB
+// and the message is silently dropped by Chrome (generic timeout).
 function handleReadFile(msg) {
   const reply = (payload) => writeNativeMessage({ id: msg.id, type: "file_read", ...payload });
   try {
@@ -341,7 +343,7 @@ function handleReadFile(msg) {
     if (!file) return reply({ ok: false, error: "no path" });
     const st = fs.statSync(file);
     if (!st.isFile()) return reply({ ok: false, error: "not a file" });
-    if (st.size > 768 * 1024) {
+    if (st.size > 700 * 1024) {
       return reply({ ok: false, error: `file too large for drag-and-drop (${st.size} bytes; target the <input type="file"> so setFileInputFiles can stream it)` });
     }
     reply({ ok: true, result: fs.readFileSync(file).toString("base64") });
