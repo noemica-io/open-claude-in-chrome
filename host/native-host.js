@@ -284,7 +284,7 @@ function handleSaveScreenshotToDisk(msg) {
   try {
     fs.mkdirSync(dir, { recursive: true });
     const b64 = String(msg.dataUrl || "").replace(/^data:image\/\w+;base64,/, "");
-    if (!b64) throw new Error("empty image data");
+    if (!b64 || !/^[A-Za-z0-9+/]+={0,2}$/.test(b64)) throw new Error("empty or malformed image data");
     const file = path.join(dir, `${timestamp}.jpg`);
     fs.writeFileSync(file, Buffer.from(b64, "base64"));
     writeNativeMessage({ type: "screenshot_saved", id: msg.id, path: file, ok: true });
@@ -329,6 +329,27 @@ function handleWriteTempFile(msg) {
   }
 }
 
+// Read a local file's bytes for upload_file's drag-and-drop fallback:
+// Input.dispatchDragEvent needs the file CONTENT as base64 (the extension
+// can't read local files itself). Chrome caps native-messaging host->extension
+// messages at 1MB, so bound the size and let larger files use the
+// setFileInputFiles path instead of dying mid-message.
+function handleReadFile(msg) {
+  const reply = (payload) => writeNativeMessage({ id: msg.id, type: "file_read", ...payload });
+  try {
+    const file = String(msg.path || "");
+    if (!file) return reply({ ok: false, error: "no path" });
+    const st = fs.statSync(file);
+    if (!st.isFile()) return reply({ ok: false, error: "not a file" });
+    if (st.size > 768 * 1024) {
+      return reply({ ok: false, error: `file too large for drag-and-drop (${st.size} bytes; target the <input type="file"> so setFileInputFiles can stream it)` });
+    }
+    reply({ ok: true, result: fs.readFileSync(file).toString("base64") });
+  } catch (e) {
+    reply({ ok: false, error: String(e && e.message) });
+  }
+}
+
 // --- Main: bridge stdin (from extension) <-> TCP (to MCP server) ---
 
 let stdinBuffer = Buffer.alloc(0);
@@ -362,6 +383,10 @@ if (msg && msg.type === "write_trace") {
     }
     if (msg && msg.type === "write_temp_file") {
       handleWriteTempFile(msg);
+      continue;
+    }
+    if (msg && msg.type === "read_file") {
+      handleReadFile(msg);
       continue;
     }
     // Forward everything else to the MCP server via TCP.

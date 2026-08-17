@@ -1540,9 +1540,26 @@ const toolHandlers = {
       return { content: [{ type: "text", text: "upload_file failed: the target is not a file input and has no usable drop coordinates. Target the <input type=\"file\"> element directly via read_page/find and pass its ref." }] };
     }
 
+    // dispatchDragEvent's DragData.items need the file CONTENT (base64), not
+    // the path - the browser can't dereference a host path on its own. Read
+    // the bytes through the native host; large/unreadable files fall back to
+    // an error telling the agent to use the file-input path instead.
+    let fileBase64;
+    try {
+      fileBase64 = await nativeRequest({ type: "read_file", path });
+    } catch (e) {
+      return { content: [{ type: "text", text: `upload_file failed: could not read ${path} for drag-and-drop (${e.message}). Target the <input type="file"> element directly via read_page/find and pass its ref.` }] };
+    }
+    const ext = path.split(".").pop().toLowerCase();
+    const mimeByExt = {
+      png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
+      webp: "image/webp", svg: "image/svg+xml", pdf: "application/pdf",
+      txt: "text/plain", csv: "text/csv", json: "application/json",
+      html: "text/html", md: "text/markdown", mp3: "audio/mpeg",
+      wav: "audio/wav", mp4: "video/mp4", webm: "video/webm",
+    };
     const data = {
-      items: [{ mimeType: "application/octet-stream", data: path }],
-      files: [path],
+      items: [{ mimeType: mimeByExt[ext] || "application/octet-stream", data: fileBase64 }],
       dragOperationsMask: 1, // copy
     };
     try {
