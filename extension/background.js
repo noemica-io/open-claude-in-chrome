@@ -1146,7 +1146,7 @@ const toolHandlers = {
         return {
           content: [
             { type: "text", text: `Zoom region: [${args.region.join(", ")}]` },
-            { type: "image", data: fullBase64, mimeType: "image/png" },
+            { type: "image", data: fullBase64, mimeType: "image/jpeg" },
           ],
         };
       }
