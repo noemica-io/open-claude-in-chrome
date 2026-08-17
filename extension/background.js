@@ -1524,9 +1524,10 @@ const toolHandlers = {
     // The file is already on disk on the same machine as the browser, so pass the
     // real path straight to CDP — no temp staging needed.
     if (probeVal.isFileInput) {
-      const inputExpr = ref
-        ? `${locator}.closest('input[type="file"]')`
-        : `document.elementFromPoint(${coordinate[0]}, ${coordinate[1]}).closest('input[type="file"]')`;
+      // locator already resolves the target element (ref via JSON.stringify, or
+      // coordinate via Number()-coerced elementFromPoint) - reuse it instead of
+      // re-interpolating raw coordinates (defense-in-depth, matches upload_image).
+      const inputExpr = `${locator}.closest('input[type="file"]')`;
       const inputEval = await cdp(tabId, "Runtime.evaluate", { expression: inputExpr, returnByValue: false });
       const objectId = inputEval?.result?.objectId;
       if (!objectId) {
@@ -1568,12 +1569,16 @@ const toolHandlers = {
       items: [{ mimeType: mimeByExt[ext] || "application/octet-stream", data: fileBase64 }],
       dragOperationsMask: 1, // copy
     };
+    // CDP Input.dispatchDragEvent only accepts dragEnter/dragOver/drop/dragCancel.
+    // There is no dragEnd type - a successful drop ends the drag, and the source's
+    // dragend event fires automatically. Sending dragEnd would raise a protocol
+    // error AFTER drop already succeeded, making the tool report failure on an
+    // actually-successful upload.
     try {
       for (const type of ["dragEnter", "dragOver"]) {
         await cdp(tabId, "Input.dispatchDragEvent", { type, x: dx, y: dy, data });
       }
       await cdp(tabId, "Input.dispatchDragEvent", { type: "drop", x: dx, y: dy, data });
-      await cdp(tabId, "Input.dispatchDragEvent", { type: "dragEnd", x: dx, y: dy, data });
     } catch (e) {
       return { content: [{ type: "text", text: `upload_file failed: the target is not a file input and drag-and-drop errored (${e.message}). Target the <input type="file"> element directly via read_page/find and pass its ref.` }] };
     }

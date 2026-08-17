@@ -72,7 +72,7 @@ Yes â€” and rather than assert it, here is a benchmark. **[Read the full study â
 <img src="docs/img/parity.png" alt="Turns per task against suite latency: the official extension and this harness cold are ringed together as statistically indistinguishable, with an arrow to this harness's best method showing 23% fewer turns and 15% less time" width="820">
 </p>
 
-17 arms, each run over the same 12 held-out tasks from the
+13 arms, each run over the same 12 held-out tasks from the
 [REAL](https://github.com/agi-inc/REAL) web-agent benchmark, same model and
 effort throughout (Sonnet, medium). What it found:
 
