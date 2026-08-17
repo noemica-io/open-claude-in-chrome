@@ -824,12 +824,27 @@ const toolHandlers = {
 
     // networkidle needs the Network domain enabled from (just before) the start
     // of the navigation so every request the page makes is counted. Default
-    // "load" keeps the old behavior and avoids attaching the debugger.
+    // "load" keeps the old behavior and avoids attaching the debugger. Record
+    // whether Network / the in-flight counter already existed before us (e.g. a
+    // prior read_network_requests enabled capture) so cleanup only tears down
+    // what THIS navigation enabled and never silently kills a shared capture.
     let useNetworkIdle = wait === "networkidle";
+    let networkIdleOwnedDomain = false;
+    let networkIdleOwnedInflight = false;
     if (useNetworkIdle) {
+      const stBefore = attachedTabs.get(tabId);
+      const networkAlreadyEnabled = !!stBefore?.enabledDomains.has("Network");
+      const inflightExisted = networkInflight.has(tabId);
       try {
         await cdp(tabId, "Network.enable");
-        networkInflight.set(tabId, new Set());
+        if (!networkAlreadyEnabled) {
+          stBefore?.enabledDomains.add("Network");
+          networkIdleOwnedDomain = true;
+        }
+        if (!inflightExisted) {
+          networkInflight.set(tabId, new Set());
+          networkIdleOwnedInflight = true;
+        }
       } catch {
         // If attachment fails, fall back to the plain load wait rather than
         // erroring out. Must also disable the networkidle wait itself: otherwise
@@ -837,27 +852,29 @@ const toolHandlers = {
         // left by an earlier networkidle navigation on this tab and burn the full
         // 15s timeout even though no Network events are flowing now.
         useNetworkIdle = false;
-        networkInflight.delete(tabId);
+        if (networkIdleOwnedInflight) networkInflight.delete(tabId);
+        networkIdleOwnedDomain = false;
+        networkIdleOwnedInflight = false;
       }
     }
 
     // Tear down the networkidle Network domain + in-flight counter regardless
     // of how navigation exits (success, invalid-URL early return, or a thrown
-    // chrome.tabs.update because the tab closed mid-navigation). Without this
-    // finally a failed navigation leaves the Network domain enabled and the
-    // debugger attached until the tab closes.
+    // chrome.tabs.update because the tab closed mid-navigation). Only disables
+    // the Network domain / drops the counter when THIS navigation was the one
+    // that enabled them; a Network capture started by read_network_requests is
+    // left running so requests after this navigate keep being recorded.
     const cleanupNetworkIdle = () => {
       if (!useNetworkIdle) return;
-      cdp(tabId, "Network.disable").catch(() => {});
-      // ensureDomain() gates on attachedTabs.enabledDomains; if a prior
-      // read_network_requests added "Network" to that set, disabling the domain
-      // here while leaving the set entry would make a LATER ensureDomain skip
-      // re-enabling (it thinks the domain is still on), silently breaking
-      // network capture. Drop it so the next caller re-enables on demand.
-      const st = attachedTabs.get(tabId);
-      if (st) st.enabledDomains.delete("Network");
-      networkInflight.delete(tabId);
+      if (networkIdleOwnedDomain) {
+        cdp(tabId, "Network.disable").catch(() => {});
+        const st = attachedTabs.get(tabId);
+        if (st) st.enabledDomains.delete("Network");
+      }
+      if (networkIdleOwnedInflight) networkInflight.delete(tabId);
       useNetworkIdle = false;
+      networkIdleOwnedDomain = false;
+      networkIdleOwnedInflight = false;
     };
     try {
     if (url === "back") {
