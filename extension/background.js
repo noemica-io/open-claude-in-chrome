@@ -841,6 +841,25 @@ const toolHandlers = {
       }
     }
 
+    // Tear down the networkidle Network domain + in-flight counter regardless
+    // of how navigation exits (success, invalid-URL early return, or a thrown
+    // chrome.tabs.update because the tab closed mid-navigation). Without this
+    // finally a failed navigation leaves the Network domain enabled and the
+    // debugger attached until the tab closes.
+    const cleanupNetworkIdle = () => {
+      if (!useNetworkIdle) return;
+      cdp(tabId, "Network.disable").catch(() => {});
+      // ensureDomain() gates on attachedTabs.enabledDomains; if a prior
+      // read_network_requests added "Network" to that set, disabling the domain
+      // here while leaving the set entry would make a LATER ensureDomain skip
+      // re-enabling (it thinks the domain is still on), silently breaking
+      // network capture. Drop it so the next caller re-enables on demand.
+      const st = attachedTabs.get(tabId);
+      if (st) st.enabledDomains.delete("Network");
+      networkInflight.delete(tabId);
+      useNetworkIdle = false;
+    };
+    try {
     if (url === "back") {
       await chrome.tabs.goBack(tabId);
     } else if (url === "forward") {
@@ -878,25 +897,14 @@ const toolHandlers = {
       }, 10000);
     });
 
-    // Optional networkidle: after load, additionally wait until the page has
-    // made no network requests for ~500ms. Catches SPAs that fetch data after
-    // the initial HTML load. Bounded so a long-polling page can't hang us.
-    if (useNetworkIdle) {
-      await waitForNetworkIdle(tabId);
-      // Clean up after the wait: stop the Network event stream and drop the
-      // in-flight counter so a single networkidle navigation doesn't leave the
-      // tab with a permanently-enabled Network domain + attached debugger (and
-      // a stale counter) for the rest of its lifetime. read_network_requests
-      // re-enables the domain on demand, so this is safe to tear down here.
-      cdp(tabId, "Network.disable").catch(() => {});
-      // ensureDomain() gates on attachedTabs.enabledDomains; if a prior
-      // read_network_requests added "Network" to that set, disabling the domain
-      // here while leaving the set entry would make a LATER ensureDomain skip
-      // re-enabling (it thinks the domain is still on), silently breaking
-      // network capture. Drop it so the next caller re-enables on demand.
-      const st = attachedTabs.get(tabId);
-      if (st) st.enabledDomains.delete("Network");
-      networkInflight.delete(tabId);
+      // Optional networkidle: after load, additionally wait until the page has
+      // made no network requests for ~500ms. Catches SPAs that fetch data after
+      // the initial HTML load. Bounded so a long-polling page can't hang us.
+      if (useNetworkIdle) {
+        await waitForNetworkIdle(tabId);
+      }
+    } finally {
+      cleanupNetworkIdle();
     }
 
     const tab = await chrome.tabs.get(tabId);
@@ -1438,6 +1446,10 @@ const toolHandlers = {
     if (!objectId) {
       return { content: [{ type: "text", text: `Could not resolve the file input node for ${ref || `(${cx}, ${cy})`}.` }] };
     }
+    // DOM.getDocument first: requestNode needs the document root pushed
+    // (matches upload_file; DOM.enable alone is not sufficient on all Chrome
+    // versions to resolve an objectId into a nodeId).
+    await cdp(tabId, "DOM.getDocument", {});
     const node = await cdp(tabId, "DOM.requestNode", { objectId });
     await cdp(tabId, "DOM.setFileInputFiles", { nodeId: node.nodeId, files: [tempPath] });
 

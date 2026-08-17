@@ -16,7 +16,9 @@ num_turns per task, y = suite total minutes, lower-left is better), trimmed for
 a README: fewer arms, larger type, no legend sprawl. The other 11 arms stay as
 faded context so the two highlighted points read against the full study.
 
-Chrome headless -> PNG at docs/img/parity.png.
+Writes an inline-SVG HTML page to readme_parity.html; render that page in a
+headless browser to produce docs/img/parity.png (the PNG is committed in the
+repo and is what README.md embeds).
 """
 import json, math, os
 
