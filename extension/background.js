@@ -1489,9 +1489,12 @@ const toolHandlers = {
     // Locate the target element in the page: by element ref, else by coordinate.
     // From it, find the nearest file input (self or ancestor). The page returns
     // enough info to decide between setFileInputFiles and a drag-and-drop.
+    // Number() coerce coordinates: matches upload_image's defense-in-depth so a
+    // non-numeric value (should the zod schema ever be bypassed) becomes NaN
+    // (elementFromPoint treats it as (0,0)) instead of executable JS.
     const locator = ref
       ? `window.__unblockedChrome?.resolveRef?.(${JSON.stringify(ref)})`
-      : `document.elementFromPoint(${coordinate[0]}, ${coordinate[1]})`;
+      : `document.elementFromPoint(${Number(coordinate[0])}, ${Number(coordinate[1])})`;
 
     const probe = await cdp(tabId, "Runtime.evaluate", {
       expression: `(() => {
