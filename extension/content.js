@@ -447,6 +447,38 @@
       return true;
     }
 
+    // Resolve a ref in THIS (isolated) world — where resolveRef/elementMap live —
+    // and stamp a DOM attribute on the element so the background page can find it
+    // via CDP. CDP Runtime.evaluate runs in the page's MAIN world and cannot see
+    // window.__unblockedChrome, so a main-world resolveRef always returns null;
+    // the DOM is shared across worlds, so an attribute set here IS visible to CDP.
+    // Used by file_upload / upload_image to reach a (possibly hidden) file input.
+    if (msg.type === "markElementForUpload") {
+      const el = resolveRef(msg.ref);
+      if (!el) {
+        sendResponse({ ok: false });
+        return true;
+      }
+      const isFileInput =
+        el.tagName &&
+        el.tagName.toLowerCase() === "input" &&
+        (el.type || "").toLowerCase() === "file";
+      try { el.setAttribute("data-ocic-upload-target", "1"); } catch {}
+      try { el.scrollIntoView({ block: "center", behavior: "instant" }); } catch {}
+      sendResponse({ ok: true, isFileInput, tag: el.tagName.toLowerCase() });
+      return true;
+    }
+
+    if (msg.type === "unmarkElementForUpload") {
+      try {
+        document
+          .querySelectorAll("[data-ocic-upload-target]")
+          .forEach((e) => e.removeAttribute("data-ocic-upload-target"));
+      } catch {}
+      sendResponse({ ok: true });
+      return true;
+    }
+
     return false;
   });
 

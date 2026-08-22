@@ -1285,33 +1285,19 @@ const toolHandlers = {
       return { content: [{ type: "text", text: `Image ${imageId} not found. Take a screenshot first.` }] };
     }
 
-    // Resolve the ref to the file input. Reusing the content script's resolveRef
-    // keeps behavior consistent with the other tools.
     await ensureAttached(tabId);
     await ensureDomain(tabId, "DOM");
 
-    // JSON.stringify embeds ref as a safe JS string literal so a crafted ref
-    // can't break out of the quotes and run page-context JS.
-    const fileInputExpr = `window.__unblockedChrome?.resolveRef?.(${JSON.stringify(ref)})`;
-
-    // 1) Classify the target before touching the DOM.
-    const detect = await cdp(tabId, "Runtime.evaluate", {
-      expression: `(() => {
-        const el = ${fileInputExpr};
-        if (!el) return { missing: true };
-        if (el.tagName.toLowerCase() !== "input" || el.type !== "file") {
-          return { notFile: el.tagName.toLowerCase() };
-        }
-        return { fileInput: true };
-      })()`,
-      returnByValue: true,
-    });
-    const cls = detect.result?.value;
-    if (cls?.missing) {
+    // 1) Resolve the ref through the content-script channel (isolated world,
+    //    where resolveRef lives), stamping a DOM attribute CDP can find. A
+    //    main-world Runtime.evaluate can't see the isolated-world globals.
+    const mark = await sendContentMessage(tabId, { type: "markElementForUpload", ref });
+    if (!mark || !mark.ok) {
       return { content: [{ type: "text", text: `No element found for ref=${ref}. Re-run read_page/find to get a fresh ref.` }] };
     }
-    if (cls?.notFile) {
-      return { content: [{ type: "text", text: `Target ref=${ref} is a <${cls.notFile}>, not a file input.` }] };
+    if (!mark.isFileInput) {
+      await sendContentMessage(tabId, { type: "unmarkElementForUpload" }).catch(() => {});
+      return { content: [{ type: "text", text: `Target ref=${ref} is a <${mark.tag}>, not a file input.` }] };
     }
 
     // 2) Stage the screenshot bytes as a real temp file via the native host.
@@ -1321,26 +1307,28 @@ const toolHandlers = {
     try {
       tempPath = await nativeRequest({ type: "write_temp_file", dataUrl: base64, filename });
     } catch (e) {
+      await sendContentMessage(tabId, { type: "unmarkElementForUpload" }).catch(() => {});
       return { content: [{ type: "text", text: `Failed to stage temp file for ${imageId}: ${String(e && e.message)}` }] };
     }
     if (!tempPath) {
+      await sendContentMessage(tabId, { type: "unmarkElementForUpload" }).catch(() => {});
       return { content: [{ type: "text", text: `Failed to stage temp file for ${imageId}.` }] };
     }
 
-    // 3) Grab the file input's nodeId, then push the file via CDP. The CDP
-    //    sequence is: Runtime.evaluate -> element objectId, DOM.requestNode ->
-    //    nodeId, DOM.setFileInputFiles -> attach the staged file.
-    const objRes = await cdp(tabId, "Runtime.evaluate", { expression: fileInputExpr, returnByValue: false });
-    const objectId = objRes.result?.objectId;
-    if (!objectId) {
-      return { content: [{ type: "text", text: `Could not resolve the file input node for ref=${ref}.` }] };
+    // 3) Find the marked file input via CDP, then attach the staged file.
+    try {
+      const doc = await cdp(tabId, "DOM.getDocument", {});
+      const q = await cdp(tabId, "DOM.querySelector", {
+        nodeId: doc.root.nodeId,
+        selector: "[data-ocic-upload-target]",
+      });
+      if (!q || !q.nodeId) {
+        return { content: [{ type: "text", text: `Could not resolve the file input node for ref=${ref}.` }] };
+      }
+      await cdp(tabId, "DOM.setFileInputFiles", { nodeId: q.nodeId, files: [tempPath] });
+    } finally {
+      await sendContentMessage(tabId, { type: "unmarkElementForUpload" }).catch(() => {});
     }
-    // DOM.getDocument first: requestNode needs the document root pushed
-    // (matches file_upload; DOM.enable alone is not sufficient on all Chrome
-    // versions to resolve an objectId into a nodeId).
-    await cdp(tabId, "DOM.getDocument", {});
-    const node = await cdp(tabId, "DOM.requestNode", { objectId });
-    await cdp(tabId, "DOM.setFileInputFiles", { nodeId: node.nodeId, files: [tempPath] });
 
     return { content: [{ type: "text", text: `Uploaded ${filename} (${imageId}) to the file input. Temp file: ${tempPath}` }] };
   },
@@ -1395,43 +1383,35 @@ const toolHandlers = {
     await ensureAttached(tabId);
     await ensureDomain(tabId, "DOM");
 
-    // Resolve the ref to the file input. JSON.stringify embeds ref as a safe JS
-    // string literal so a crafted ref can't break out of the quotes and run
-    // page-context JS.
-    const inputExpr = `window.__unblockedChrome?.resolveRef?.(${JSON.stringify(ref)})`;
-
-    // Classify before touching the DOM: the target must be an <input type=file>.
-    const detect = await cdp(tabId, "Runtime.evaluate", {
-      expression: `(() => {
-        const el = ${inputExpr};
-        if (!el) return { missing: true };
-        if (el.tagName.toLowerCase() !== "input" || el.type !== "file") {
-          return { notFile: el.tagName.toLowerCase() };
-        }
-        return { fileInput: true };
-      })()`,
-      returnByValue: true,
-    });
-    const cls = detect.result?.value;
-    if (cls?.missing) {
+    // Resolve the ref through the content-script channel (isolated world, where
+    // resolveRef/__unblockedChrome live), which stamps a DOM attribute on the
+    // element. CDP Runtime.evaluate runs in the page's MAIN world and can't see
+    // the isolated-world globals, so we locate the element via that shared-DOM
+    // attribute instead. Works for hidden file inputs too.
+    const mark = await sendContentMessage(tabId, { type: "markElementForUpload", ref });
+    if (!mark || !mark.ok) {
       return { content: [{ type: "text", text: `No element found for ref=${ref}. Re-run read_page/find to get a fresh ref.` }] };
     }
-    if (cls?.notFile) {
-      return { content: [{ type: "text", text: `Target ref=${ref} is a <${cls.notFile}>, not a file input. Point at the <input type=file> element (read_page/find can locate hidden ones).` }] };
+    if (!mark.isFileInput) {
+      return { content: [{ type: "text", text: `Target ref=${ref} is a <${mark.tag}>, not a file input. Point at the <input type=file> element (read_page/find can locate hidden ones).` }] };
     }
 
     // The files are already on disk on the same machine as the browser, so pass
-    // the real paths straight to CDP — no temp staging needed. CDP sequence:
-    // Runtime.evaluate -> element objectId, DOM.requestNode -> nodeId,
-    // DOM.setFileInputFiles -> attach the files.
-    const objRes = await cdp(tabId, "Runtime.evaluate", { expression: inputExpr, returnByValue: false });
-    const objectId = objRes.result?.objectId;
-    if (!objectId) {
-      return { content: [{ type: "text", text: `Could not resolve the file input node for ref=${ref}.` }] };
+    // the real paths straight to CDP — no temp staging needed. Find the marked
+    // node via CDP, then DOM.setFileInputFiles.
+    try {
+      const doc = await cdp(tabId, "DOM.getDocument", {});
+      const q = await cdp(tabId, "DOM.querySelector", {
+        nodeId: doc.root.nodeId,
+        selector: "[data-ocic-upload-target]",
+      });
+      if (!q || !q.nodeId) {
+        return { content: [{ type: "text", text: `Could not resolve the file input node for ref=${ref}.` }] };
+      }
+      await cdp(tabId, "DOM.setFileInputFiles", { nodeId: q.nodeId, files: paths });
+    } finally {
+      await sendContentMessage(tabId, { type: "unmarkElementForUpload" }).catch(() => {});
     }
-    await cdp(tabId, "DOM.getDocument", {});
-    const node = await cdp(tabId, "DOM.requestNode", { objectId });
-    await cdp(tabId, "DOM.setFileInputFiles", { nodeId: node.nodeId, files: paths });
 
     const label = paths.length === 1 ? paths[0] : `${paths.length} files`;
     return { content: [{ type: "text", text: `Attached ${label} to the file input (ref=${ref}).` }] };
