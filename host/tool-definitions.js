@@ -62,12 +62,6 @@ export const TOOLS = [
         .number()
         .describe(
           "Tab ID to navigate. Must be a tab in the current group. Use tabs_context_mcp first if you don't have a valid tab ID."
-        ),
-      wait: z
-        .enum(["load", "networkidle"])
-        .optional()
-        .describe(
-          'Load wait strategy. "load" (default) resolves when the page fires its load event (initial HTML + synchronous resources). "networkidle" additionally waits until the page has made no network requests for ~500ms, which is more reliable for single-page apps that fetch data after the initial HTML load. Costs a bit more time and attaches the debugger.'
         )
     }
   },
@@ -172,7 +166,7 @@ export const TOOLS = [
         .boolean()
         .optional()
         .describe(
-          "Optional, `screenshot` action only only. Set true to write the captured screenshot to disk (under ~/.config/open-claude-in-chrome/screenshots/) and return its absolute path in the result so it can be opened or shared. Default false."
+          "Optional, for the `screenshot` and `zoom` actions. Set true to write the captured image to disk (under ~/.config/open-claude-in-chrome/screenshots/) and return its absolute path in the result so it can be opened or shared. Default false."
         )
     }
   },
@@ -483,7 +477,7 @@ export const TOOLS = [
   {
     name: "upload_image",
     description:
-      "Upload a previously captured screenshot or user-uploaded image to a file input. Supports two ways to identify the target: (1) ref - target a specific element, especially a hidden file input; (2) coordinate - the nearest <input type=\"file\"> under a viewport point. Provide either ref or coordinate, not both. The target must be a file input; drag & drop is not supported.",
+      "Upload a previously captured screenshot (from the computer tool's screenshot action) to a file input. Identify the target with `ref` from read_page or find; the target must be an <input type=\"file\"> (especially useful for hidden inputs).",
     paramShape: {
       imageId: z
         .string()
@@ -497,26 +491,19 @@ export const TOOLS = [
         ),
       ref: z
         .string()
-        .optional()
         .describe(
-          'Element reference ID from read_page or find tools (e.g., "ref_1", "ref_2"). Use this for file inputs (especially hidden ones) or specific elements. Provide either ref or coordinate, not both.'
-        ),
-      coordinate: z
-        .array(z.number())
-        .optional()
-        .describe(
-          "Viewport coordinates [x, y] for drag & drop to a visible location. Use this for drag & drop targets like Google Docs. Provide either ref or coordinate, not both."
+          'Element reference ID of the file input from read_page or find tools (e.g., "ref_1", "ref_2").'
         ),
       filename: z
         .string()
         .optional()
         .describe(
-          'Optional filename for the uploaded file (default: "image.jpg"; screenshots are JPEG)'
+          'Optional filename for the uploaded file (default: "image.png")'
         )
     }
   },
   {
-name: "retranscribe_recording",
+    name: "retranscribe_recording",
     description:
       "Re-run transcription for a saved recording whose transcript failed at stop (e.g. a transient OpenAI error). Re-assembles the durable audio segments, re-transcribes them, and patches trace.json on disk, overwriting the previous transcript. Returns the updated transcript status and utterance count. Constraints: only works for the MOST RECENT recording recorded after this feature shipped (a newer recording clears the in-browser audio store; older sessions lack the segment anchors needed to map timestamps). Only call it to recover a recording whose transcript actually failed — re-running on a good one replaces the transcript with a fresh result and could worsen it if OpenAI is currently failing.",
     paramShape: {
@@ -528,33 +515,24 @@ name: "retranscribe_recording",
     }
   },
   {
-    name: "upload_file",
+    name: "file_upload",
     description:
-      "Upload an arbitrary local file (by absolute path) to a web form's file input. The file must already exist on this machine (the same machine as the browser), so no temporary staging is needed — the real path is passed directly to the browser. Provide either 'ref' (element reference from read_page/find) or 'coordinate' ([x, y] viewport position) to identify the target, not both. Full file inputs (especially hidden ones) work best via 'ref'. Practical limit ~10MB per file. If no <input type=\"file\"> is found at the target, attempts a synthesized drag-and-drop of the file onto the element.",
+      "Upload one or more local files (by absolute path) to a file input element on the page. Use read_page or find to locate the <input type=\"file\">, then pass its ref — do not click file inputs, which opens a native picker you cannot see. Each file must already exist on this machine (the same machine as the browser); the real path is passed straight to the browser, no staging. Keep the combined size of all files in a single call under ~10 MB.",
     paramShape: {
-      tabId: z
-        .number()
+      paths: z
+        .array(z.string())
         .describe(
-          "Tab ID where the target element is located. Must be a tab in current group. Use tabs_context_mcp first if you don't have a valid tab ID."
-        ),
-      path: z
-        .string()
-        .describe(
-          "Absolute path to the local file to upload (e.g., '/home/user/report.pdf'). The file must already exist on this machine. Practical limit ~10MB per file."
+          "Absolute paths to the files to upload (e.g., ['/home/user/report.pdf']). Each file must already exist on this machine."
         ),
       ref: z
         .string()
-        .optional()
         .describe(
-          'Element reference ID from read_page/find tools (e.g., "ref_1"). Use for file inputs (especially hidden ones). Provide either ref or coordinate, not both.'
+          'Element reference ID of the file input from read_page or find tools (e.g., "ref_1", "ref_2").'
         ),
-      coordinate: z
-        .array(z.number())
-        .min(2)
-        .max(2)
-        .optional()
+      tabId: z
+        .number()
         .describe(
-          "Viewport coordinate [x, y] of the target element, used for drag-and-drop targets. Provide either ref or coordinate, not both."
+          "Tab ID where the file input is located. Must be a tab in the current group. Use tabs_context_mcp first if you don't have a valid tab ID."
         )
     }
   }

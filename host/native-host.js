@@ -169,59 +169,6 @@ function handleSaveRecording(msg) {
   }
 }
 
-// Overwrite trace.json for a recording (used to persist a re-run transcription
-// from the retranscribe path). Same containment as the other handlers.
-function handleWriteTrace(msg) {
-  try {
-    // Contain the write to the bundle: no absolute paths, no traversal (same
-    // guard as handleSaveAudio).
-    const rid = String(msg.recording_id || "unknown").replace(/\\/g, "/");
-    if (rid.startsWith("/") || rid.split("/").includes("..")) {
-      // Guarded path: reply with an error rather than silently returning, so
-      // the caller settles its promise instead of waiting out its timeout.
-      writeNativeMessage({
-        type: "trace_written",
-        recording_id: msg.recording_id,
-        write_id: msg.write_id,
-        ok: false,
-        error: "invalid recording_id"
-      });
-      return;
-    }
-    const dir = path.join(
-      os.homedir(),
-      ".config",
-      "open-claude-in-chrome",
-      "recordings",
-      rid
-    );
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(
-      path.join(dir, "trace.json"),
-      JSON.stringify(msg.trace ?? {}, null, 2)
-    );
-    // Echo write_id back so the extension can settle the exact caller that
-    // issued this write. Without it, concurrent retranscribe calls for the same
-    // recording_id could not be correlated individually (the reply only carried
-    // recording_id), and one call's timeout or stale reply could settle another's
-    // promise with the wrong result.
-    writeNativeMessage({
-      type: "trace_written",
-      recording_id: msg.recording_id,
-      write_id: msg.write_id,
-      ok: true
-    });
-  } catch (e) {
-    writeNativeMessage({
-      type: "trace_written",
-      recording_id: msg.recording_id,
-      write_id: msg.write_id,
-      ok: false,
-      error: String(e && e.message)
-    });
-  }
-}
-
 // Write one slice of a recording's audio into audio/NNN.webm. Arrives in
 // ~768KB slices (base64 over native messaging) with append=false on the first
 // slice of each segment. This is the artifact that makes a failed transcript
@@ -329,29 +276,6 @@ function handleWriteTempFile(msg) {
   }
 }
 
-// Read a local file's bytes for upload_file's drag-and-drop fallback:
-// Input.dispatchDragEvent needs the file CONTENT as base64 (the extension
-// can't read local files itself). Chrome caps native-messaging host->extension
-// messages at 1MB (1024*1024 bytes on the wire). Base64 inflates bytes by 4/3,
-// so cap the source at 700 KiB: 700*1024*4/3 ≈ 955 KiB of base64, leaving
-// ~69 KiB for the JSON wrapper. At 768 KiB the base64 alone is exactly 1 MiB
-// and the message is silently dropped by Chrome (generic timeout).
-function handleReadFile(msg) {
-  const reply = (payload) => writeNativeMessage({ id: msg.id, type: "file_read", ...payload });
-  try {
-    const file = String(msg.path || "");
-    if (!file) return reply({ ok: false, error: "no path" });
-    const st = fs.statSync(file);
-    if (!st.isFile()) return reply({ ok: false, error: "not a file" });
-    if (st.size > 700 * 1024) {
-      return reply({ ok: false, error: `file too large for drag-and-drop (${st.size} bytes; target the <input type="file"> so setFileInputFiles can stream it)` });
-    }
-    reply({ ok: true, result: fs.readFileSync(file).toString("base64") });
-  } catch (e) {
-    reply({ ok: false, error: String(e && e.message) });
-  }
-}
-
 // --- Main: bridge stdin (from extension) <-> TCP (to MCP server) ---
 
 let stdinBuffer = Buffer.alloc(0);
@@ -379,16 +303,8 @@ process.stdin.on("data", (chunk) => {
       handleSaveAudio(msg);
       continue;
     }
-if (msg && msg.type === "write_trace") {
-      handleWriteTrace(msg);
-      continue;
-    }
     if (msg && msg.type === "write_temp_file") {
       handleWriteTempFile(msg);
-      continue;
-    }
-    if (msg && msg.type === "read_file") {
-      handleReadFile(msg);
       continue;
     }
     // Forward everything else to the MCP server via TCP.

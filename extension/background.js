@@ -15,7 +15,6 @@ let tabGroupTabs = new Set();
 const attachedTabs = new Map(); // tabId -> { enabledDomains: Set }
 const consoleMessages = new Map(); // tabId -> [{level, text, timestamp, url}]
 const networkRequests = new Map(); // tabId -> [{url, method, status, type, timestamp}]
-const networkInflight = new Map(); // tabId -> active request count (for networkidle wait)
 // tabId -> Map<requestId, record> — lets responseReceived augment the entry
 // created by requestWillBeSent instead of recording each request twice.
 const networkByRequestId = new Map();
@@ -88,16 +87,6 @@ function connectNativeHost() {
         if (resolve) {
           recorder.pendingSaves.delete(String(msg.recording_id));
           resolve(msg.ok ? msg.path : null);
-        }
-} else if (msg.type === "trace_written") {
-        // Reply from the native host after overwriting trace.json (retry path).
-        // Correlate by the caller-specific write_id so a reply settles exactly
-        // the call that issued it — concurrent retranscribe calls for the same
-        // recording_id each carry their own id and can't cross-settle.
-        const resolve = recorder.pendingTraceWrites.get(String(msg.write_id));
-        if (resolve) {
-          recorder.pendingTraceWrites.delete(String(msg.write_id));
-          resolve(msg.ok);
         }
       } else if (msg.type === "screenshot_saved") {
         // Reply from the native host after writing a screenshot to disk
@@ -340,32 +329,6 @@ async function cdp(tabId, method, params = {}) {
   );
 }
 
-// Wait until the page has made no network requests for ~quietMs, or a hard
-// timeout. The in-flight count is maintained by the Network event listener;
-// callers enable the Network domain and zero the counter before navigating.
-function waitForNetworkIdle(tabId, { quietMs = 500, timeoutMs = 15000 } = {}) {
-  return new Promise((resolve) => {
-    let idleSince = null;
-    const poll = setInterval(() => {
-      const n = (networkInflight.get(tabId) || new Set()).size;
-      if (n <= 0) {
-        if (idleSince === null) idleSince = Date.now();
-        if (Date.now() - idleSince >= quietMs) {
-          clearInterval(poll);
-          clearTimeout(bail);
-          resolve();
-        }
-      } else {
-        idleSince = null;
-      }
-    }, 100);
-    const bail = setTimeout(() => {
-      clearInterval(poll);
-      resolve();
-    }, timeoutMs);
-  });
-}
-
 // Clean up when tab is closed
 chrome.tabs.onRemoved.addListener((tabId) => {
   tabGroupTabs.delete(tabId);
@@ -375,17 +338,12 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   }
   consoleMessages.delete(tabId);
   networkRequests.delete(tabId);
-  networkInflight.delete(tabId);
   networkByRequestId.delete(tabId);
 });
 
 // Handle user dismissing debugger bar
 chrome.debugger.onDetach.addListener((source, reason) => {
   attachedTabs.delete(source.tabId);
-  // Drop the in-flight counter too: a stale non-empty count would otherwise
-  // make a networkidle wait spin out its full hard timeout with no signal that
-  // the debugger is gone.
-  networkInflight.delete(source.tabId);
 });
 
 // --- CDP event listeners for console and network ---
@@ -445,26 +403,6 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
       status: (existing && existing.status) || 0,
       timestamp: (existing && existing.timestamp) || Date.now(),
     }));
-    // Track in-flight so a networkidle wait can detect when a page settles.
-    // Keyed by requestId: a redirect re-emits requestWillBeSent for the SAME
-    // requestId (with a redirectResponse) and never separately finishes, so
-    // deduping on requestId keeps redirect chains from leaking +1 each.
-    // EventSource/WebSocket are long-lived STREAMS, not page-load requests:
-    // they never fire loadingFinished until closed, so counting them would make
-    // the very live-updating pages networkidle targets always burn the timeout.
-    if (!params.redirectResponse && params.type !== "EventSource" && params.type !== "WebSocket") {
-      let ids = networkInflight.get(tabId);
-      if (!ids) { ids = new Set(); networkInflight.set(tabId, ids); }
-      ids.add(params.requestId);
-    }
-  }
-
-  if (
-    (method === "Network.loadingFinished" || method === "Network.loadingFailed") &&
-    params.requestId
-  ) {
-    const ids = networkInflight.get(tabId);
-    if (ids) ids.delete(params.requestId);
   }
 });
 
@@ -817,66 +755,11 @@ const toolHandlers = {
   },
 
   async navigate(args) {
-    const { url, tabId, wait = "load" } = args;
+    const { url, tabId } = args;
     if (!(await isInGroup(tabId))) return { content: [{ type: "text", text: `Tab ${tabId} is not in the MCP group.` }] };
 
     await activateTab(tabId);
 
-    // networkidle needs the Network domain enabled from (just before) the start
-    // of the navigation so every request the page makes is counted. Default
-    // "load" keeps the old behavior and avoids attaching the debugger. Record
-    // whether Network / the in-flight counter already existed before us (e.g. a
-    // prior read_network_requests enabled capture) so cleanup only tears down
-    // what THIS navigation enabled and never silently kills a shared capture.
-    let useNetworkIdle = wait === "networkidle";
-    let networkIdleOwnedDomain = false;
-    let networkIdleOwnedInflight = false;
-    if (useNetworkIdle) {
-      const stBefore = attachedTabs.get(tabId);
-      const networkAlreadyEnabled = !!stBefore?.enabledDomains.has("Network");
-      const inflightExisted = networkInflight.has(tabId);
-      try {
-        await cdp(tabId, "Network.enable");
-        if (!networkAlreadyEnabled) {
-          stBefore?.enabledDomains.add("Network");
-          networkIdleOwnedDomain = true;
-        }
-        if (!inflightExisted) {
-          networkInflight.set(tabId, new Set());
-          networkIdleOwnedInflight = true;
-        }
-      } catch {
-        // If attachment fails, fall back to the plain load wait rather than
-        // erroring out. Must also disable the networkidle wait itself: otherwise
-        // waitForNetworkIdle below would poll a possibly-stale non-empty counter
-        // left by an earlier networkidle navigation on this tab and burn the full
-        // 15s timeout even though no Network events are flowing now.
-        useNetworkIdle = false;
-        if (networkIdleOwnedInflight) networkInflight.delete(tabId);
-        networkIdleOwnedDomain = false;
-        networkIdleOwnedInflight = false;
-      }
-    }
-
-    // Tear down the networkidle Network domain + in-flight counter regardless
-    // of how navigation exits (success, invalid-URL early return, or a thrown
-    // chrome.tabs.update because the tab closed mid-navigation). Only disables
-    // the Network domain / drops the counter when THIS navigation was the one
-    // that enabled them; a Network capture started by read_network_requests is
-    // left running so requests after this navigate keep being recorded.
-    const cleanupNetworkIdle = () => {
-      if (!useNetworkIdle) return;
-      if (networkIdleOwnedDomain) {
-        cdp(tabId, "Network.disable").catch(() => {});
-        const st = attachedTabs.get(tabId);
-        if (st) st.enabledDomains.delete("Network");
-      }
-      if (networkIdleOwnedInflight) networkInflight.delete(tabId);
-      useNetworkIdle = false;
-      networkIdleOwnedDomain = false;
-      networkIdleOwnedInflight = false;
-    };
-    try {
     if (url === "back") {
       await chrome.tabs.goBack(tabId);
     } else if (url === "forward") {
@@ -913,16 +796,6 @@ const toolHandlers = {
         resolve();
       }, 10000);
     });
-
-      // Optional networkidle: after load, additionally wait until the page has
-      // made no network requests for ~500ms. Catches SPAs that fetch data after
-      // the initial HTML load. Bounded so a long-polling page can't hang us.
-      if (useNetworkIdle) {
-        await waitForNetworkIdle(tabId);
-      }
-    } finally {
-      cleanupNetworkIdle();
-    }
 
     const tab = await chrome.tabs.get(tabId);
     const tabs = await chrome.tabs.query({ groupId: tabGroupId });
@@ -1042,7 +915,11 @@ const toolHandlers = {
         await activateTab(tabId);
         if (!args.text) return { content: [{ type: "text", text: "text is required for type action" }] };
         await ensureAttached(tabId);
-        await cdp(tabId, "Input.insertText", { text: args.text });
+        // Type character by character for better compatibility
+        for (const char of args.text) {
+          await cdp(tabId, "Input.insertText", { text: char });
+          await sleep(10);
+        }
         return { content: [{ type: "text", text: `Typed "${args.text.substring(0, 50)}${args.text.length > 50 ? "..." : ""}"` }] };
       }
 
@@ -1167,10 +1044,21 @@ const toolHandlers = {
         }
         // Capture full screenshot then crop region
         const { base64: fullBase64 } = await takeScreenshot(tabId);
+        // save_to_disk: write the captured image to disk and report the path.
+        // Best-effort — never fails the zoom.
+        let zoomSaveNote = "";
+        if (args.save_to_disk) {
+          try {
+            const path = await writeScreenshotToDisk(fullBase64);
+            zoomSaveNote = `\nSaved to disk: ${path}`;
+          } catch (e) {
+            zoomSaveNote = `\n(Unable to save to disk: ${e.message})`;
+          }
+        }
         // Return the full screenshot with region info — client can crop
         return {
           content: [
-            { type: "text", text: `Zoom region: [${args.region.join(", ")}]` },
+            { type: "text", text: `Zoom region: [${args.region.join(", ")}]${zoomSaveNote}` },
             { type: "image", data: fullBase64, mimeType: "image/jpeg" },
           ],
         };
@@ -1386,17 +1274,10 @@ const toolHandlers = {
   },
 
   async upload_image(args) {
-    // Screenshots are captured as JPEG (takeScreenshot uses format:"jpeg"),
-    // so the staged temp file must default to .jpg - a .png name with JPEG
-    // bytes gets rejected by servers that validate extension/MIME.
-    const { imageId, tabId, ref, coordinate, filename = "image.jpg" } = args;
-    // coordinate arrives as an array [x, y] (matching computer's coordinate[0]/[1]
-    // and the z.array schema); normalize to cx/cy so the point-lookup works.
-    const cx = Array.isArray(coordinate) ? coordinate[0] : coordinate?.x;
-    const cy = Array.isArray(coordinate) ? coordinate[1] : coordinate?.y;
+    const { imageId, tabId, ref, filename = "image.png" } = args;
     if (!(await isInGroup(tabId))) return { content: [{ type: "text", text: `Tab ${tabId} is not in the MCP group.` }] };
-    if (!ref && !coordinate) {
-      return { content: [{ type: "text", text: "upload_image requires either 'ref' (element reference from read_page/find) or 'coordinate' ([x, y] viewport position) to identify the target file input." }] };
+    if (!ref) {
+      return { content: [{ type: "text", text: "upload_image requires 'ref' (element reference from read_page/find) identifying the target <input type=file>." }] };
     }
 
     const base64 = screenshotStore.get(imageId);
@@ -1404,22 +1285,14 @@ const toolHandlers = {
       return { content: [{ type: "text", text: `Image ${imageId} not found. Take a screenshot first.` }] };
     }
 
-    // Locate the file input: the ref target itself, or (coordinate path) the
-    // nearest <input type=file> under the point. Reusing the content script's
-    // resolveRef keeps behavior consistent with the other tools.
+    // Resolve the ref to the file input. Reusing the content script's resolveRef
+    // keeps behavior consistent with the other tools.
     await ensureAttached(tabId);
     await ensureDomain(tabId, "DOM");
 
-    const fileInputExpr = ref
-      // JSON.stringify embeds ref as a safe JS string literal (matching
-      // upload_file) so a crafted ref can't break out of the quotes and run
-      // page-context JS. cx/cy are coerced with Number() so a non-numeric value
-      // becomes NaN (elementFromPoint treats it as (0,0)) instead of raw code.
-      ? `window.__unblockedChrome?.resolveRef?.(${JSON.stringify(ref)})`
-      : `(() => {
-          const el = document.elementFromPoint(${Number(cx)}, ${Number(cy)});
-          return el?.closest?.("input[type=file]") || null;
-        })()`;
+    // JSON.stringify embeds ref as a safe JS string literal so a crafted ref
+    // can't break out of the quotes and run page-context JS.
+    const fileInputExpr = `window.__unblockedChrome?.resolveRef?.(${JSON.stringify(ref)})`;
 
     // 1) Classify the target before touching the DOM.
     const detect = await cdp(tabId, "Runtime.evaluate", {
@@ -1435,8 +1308,7 @@ const toolHandlers = {
     });
     const cls = detect.result?.value;
     if (cls?.missing) {
-      const where = ref ? `ref=${ref}` : `coordinate (${cx}, ${cy})`;
-      return { content: [{ type: "text", text: `No file input found at ${where}. Drag & drop of a real file isn't supported here; point at an <input type=file>.` }] };
+      return { content: [{ type: "text", text: `No element found for ref=${ref}. Re-run read_page/find to get a fresh ref.` }] };
     }
     if (cls?.notFile) {
       return { content: [{ type: "text", text: `Target ref=${ref} is a <${cls.notFile}>, not a file input.` }] };
@@ -1461,10 +1333,10 @@ const toolHandlers = {
     const objRes = await cdp(tabId, "Runtime.evaluate", { expression: fileInputExpr, returnByValue: false });
     const objectId = objRes.result?.objectId;
     if (!objectId) {
-      return { content: [{ type: "text", text: `Could not resolve the file input node for ${ref || `(${cx}, ${cy})`}.` }] };
+      return { content: [{ type: "text", text: `Could not resolve the file input node for ref=${ref}.` }] };
     }
     // DOM.getDocument first: requestNode needs the document root pushed
-    // (matches upload_file; DOM.enable alone is not sufficient on all Chrome
+    // (matches file_upload; DOM.enable alone is not sufficient on all Chrome
     // versions to resolve an objectId into a nodeId).
     await cdp(tabId, "DOM.getDocument", {});
     const node = await cdp(tabId, "DOM.requestNode", { objectId });
@@ -1495,137 +1367,74 @@ const toolHandlers = {
       return { content: [{ type: "text", text: res?.error || "retranscription failed." }] };
     }
 
-    const wrote = await writeTraceToDisk(recording_id, res.trace).catch(() => false);
+    // Persist the patched trace via the SAME disk-write path used at stop
+    // (saveBundleToDisk -> save_recording -> native host), rather than a
+    // bespoke retry-only write path. Reuse keeps the retry a thin re-run.
+    const path = await saveBundleToDisk({
+      recording_id,
+      schema: res.trace?.schema || "v0",
+      trace: res.trace,
+    }).catch(() => null);
     const synopsis =
       `Recording ${recording_id} retranscribed: ${res.transcript_status}. ` +
       `${(res.cognitive || []).length} utterances. ` +
-      (wrote ? "trace.json updated on disk." : "WARNING: trace.json could not be written to disk.");
+      (path ? `trace.json updated on disk (${path}).` : "WARNING: trace.json could not be written to disk.");
     return { content: [{ type: "text", text: synopsis }] };
   },
 
-  async upload_file(args) {
-    const { tabId, path, ref, coordinate } = args;
+  async file_upload(args) {
+    const { tabId, paths, ref } = args;
     if (!(await isInGroup(tabId))) return { content: [{ type: "text", text: `Tab ${tabId} is not in the MCP group.` }] };
-    if (!path || typeof path !== "string") {
-      return { content: [{ type: "text", text: "upload_file requires 'path' — the absolute path to a local file (e.g. /home/user/report.pdf). The file must already exist on this machine." }] };
+    if (!Array.isArray(paths) || paths.length === 0 || !paths.every((p) => typeof p === "string" && p)) {
+      return { content: [{ type: "text", text: "file_upload requires 'paths' — a non-empty array of absolute file paths that already exist on this machine." }] };
     }
-    if (!ref && !coordinate) {
-      return { content: [{ type: "text", text: "upload_file requires either 'ref' (element reference from read_page/find) or 'coordinate' ([x, y] viewport position) to identify the target file input." }] };
+    if (!ref || typeof ref !== "string") {
+      return { content: [{ type: "text", text: "file_upload requires 'ref' — the element reference of an <input type=file> from read_page or find." }] };
     }
 
     await ensureAttached(tabId);
+    await ensureDomain(tabId, "DOM");
 
-    // Locate the target element in the page: by element ref, else by coordinate.
-    // From it, find the nearest file input (self or ancestor). The page returns
-    // enough info to decide between setFileInputFiles and a drag-and-drop.
-    // Number() coerce coordinates: matches upload_image's defense-in-depth so a
-    // non-numeric value (should the zod schema ever be bypassed) becomes NaN
-    // (elementFromPoint treats it as (0,0)) instead of executable JS.
-    const locator = ref
-      ? `window.__unblockedChrome?.resolveRef?.(${JSON.stringify(ref)})`
-      : `document.elementFromPoint(${Number(coordinate[0])}, ${Number(coordinate[1])})`;
+    // Resolve the ref to the file input. JSON.stringify embeds ref as a safe JS
+    // string literal so a crafted ref can't break out of the quotes and run
+    // page-context JS.
+    const inputExpr = `window.__unblockedChrome?.resolveRef?.(${JSON.stringify(ref)})`;
 
-    const probe = await cdp(tabId, "Runtime.evaluate", {
+    // Classify before touching the DOM: the target must be an <input type=file>.
+    const detect = await cdp(tabId, "Runtime.evaluate", {
       expression: `(() => {
-        const el = ${locator};
-        if (!el || typeof el.closest !== "function") {
-          return { found: false, error: ${ref
-            ? '"Element reference not found — the page may have changed. Re-run read_page/find to get a fresh ref."'
-            : '"No element found at the given coordinate."'} };
+        const el = ${inputExpr};
+        if (!el) return { missing: true };
+        if (el.tagName.toLowerCase() !== "input" || el.type !== "file") {
+          return { notFile: el.tagName.toLowerCase() };
         }
-        const input = el.matches('input[type="file"]') ? el : el.closest('input[type="file"]');
-        const r = input ? input.getBoundingClientRect() : el.getBoundingClientRect();
-        return {
-          found: true,
-          isFileInput: !!input,
-          tag: el.tagName.toLowerCase(),
-          type: el.getAttribute ? el.getAttribute("type") : null,
-          center: r ? [Math.round(r.x + r.width / 2), Math.round(r.y + r.height / 2)] : null,
-        };
+        return { fileInput: true };
       })()`,
       returnByValue: true,
     });
-    const probeVal = probe.result?.value;
-    if (!probeVal || !probeVal.found) {
-      return { content: [{ type: "text", text: probeVal?.error || `upload_file failed: could not resolve the target element in tab ${tabId}.` }] };
+    const cls = detect.result?.value;
+    if (cls?.missing) {
+      return { content: [{ type: "text", text: `No element found for ref=${ref}. Re-run read_page/find to get a fresh ref.` }] };
+    }
+    if (cls?.notFile) {
+      return { content: [{ type: "text", text: `Target ref=${ref} is a <${cls.notFile}>, not a file input. Point at the <input type=file> element (read_page/find can locate hidden ones).` }] };
     }
 
-    // The file is already on disk on the same machine as the browser, so pass the
-    // real path straight to CDP — no temp staging needed.
-    if (probeVal.isFileInput) {
-      // locator already resolves the target element (ref via JSON.stringify, or
-      // coordinate via Number()-coerced elementFromPoint) - reuse it instead of
-      // re-interpolating raw coordinates (defense-in-depth, matches upload_image).
-      const inputExpr = `${locator}.closest('input[type="file"]')`;
-      const inputEval = await cdp(tabId, "Runtime.evaluate", { expression: inputExpr, returnByValue: false });
-      const objectId = inputEval?.result?.objectId;
-      if (!objectId) {
-        return { content: [{ type: "text", text: "upload_file failed: found the file input but could not resolve its DOM node." }] };
-      }
-      await cdp(tabId, "DOM.getDocument", {});
-      const { nodeId } = await cdp(tabId, "DOM.requestNode", { objectId });
-      await cdp(tabId, "DOM.setFileInputFiles", { nodeId, files: [path] });
-      return { content: [{ type: "text", text: `Attached ${path} to the file input.` }] };
+    // The files are already on disk on the same machine as the browser, so pass
+    // the real paths straight to CDP — no temp staging needed. CDP sequence:
+    // Runtime.evaluate -> element objectId, DOM.requestNode -> nodeId,
+    // DOM.setFileInputFiles -> attach the files.
+    const objRes = await cdp(tabId, "Runtime.evaluate", { expression: inputExpr, returnByValue: false });
+    const objectId = objRes.result?.objectId;
+    if (!objectId) {
+      return { content: [{ type: "text", text: `Could not resolve the file input node for ref=${ref}.` }] };
     }
+    await cdp(tabId, "DOM.getDocument", {});
+    const node = await cdp(tabId, "DOM.requestNode", { objectId });
+    await cdp(tabId, "DOM.setFileInputFiles", { nodeId: node.nodeId, files: paths });
 
-    // No file input at the target — fall back to a synthesized drag-and-drop of
-    // the file onto the element (CDP Input.dispatchDragEvent). This is best-effort
-    // and only meaningful if the page registered a drop handler for the file.
-    const [dx, dy] = probeVal.center || coordinate;
-    if (!dx && !dy) {
-      return { content: [{ type: "text", text: "upload_file failed: the target is not a file input and has no usable drop coordinates. Target the <input type=\"file\"> element directly via read_page/find and pass its ref." }] };
-    }
-
-    // dispatchDragEvent's DragData.items need the file CONTENT (base64), not
-    // the path - the browser can't dereference a host path on its own. Read
-    // the bytes through the native host; large/unreadable files fall back to
-    // an error telling the agent to use the file-input path instead.
-    let fileBase64;
-    try {
-      fileBase64 = await nativeRequest({ type: "read_file", path });
-    } catch (e) {
-      return { content: [{ type: "text", text: `upload_file failed: could not read ${path} for drag-and-drop (${e.message}). Target the <input type="file"> element directly via read_page/find and pass its ref.` }] };
-    }
-    const ext = path.split(".").pop().toLowerCase();
-    const mimeByExt = {
-      png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
-      webp: "image/webp", svg: "image/svg+xml", pdf: "application/pdf",
-      txt: "text/plain", csv: "text/csv", json: "application/json",
-      html: "text/html", md: "text/markdown", mp3: "audio/mpeg",
-      wav: "audio/wav", mp4: "video/mp4", webm: "video/webm",
-    };
-    const data = {
-      items: [{ mimeType: mimeByExt[ext] || "application/octet-stream", data: fileBase64 }],
-      dragOperationsMask: 1, // copy
-    };
-    // CDP Input.dispatchDragEvent only accepts dragEnter/dragOver/drop/dragCancel.
-    // There is no dragEnd type - a successful drop ends the drag, and the source's
-    // dragend event fires automatically. Sending dragEnd would raise a protocol
-    // error AFTER drop already succeeded, making the tool report failure on an
-    // actually-successful upload.
-    //
-    // Chromium gates synthetic drag dispatches behind drag interception being
-    // enabled (the same flag Puppeteer sets before its drag/drop flow); without
-    // it, dispatchDragEvent can be rejected as a no-op. Enable it first and
-    // always restore it afterwards so we don't alter the page's handling of
-    // real user drags. Best-effort: on a browser that doesn't support the
-    // command, ignore the failure and still attempt the dispatch.
-    let interceptEnabled = false;
-    try {
-      await cdp(tabId, "Input.setInterceptDrags", { enabled: true });
-      interceptEnabled = true;
-    } catch { /* not supported on this browser version; proceed anyway */ }
-    try {
-      for (const type of ["dragEnter", "dragOver"]) {
-        await cdp(tabId, "Input.dispatchDragEvent", { type, x: dx, y: dy, data });
-      }
-      await cdp(tabId, "Input.dispatchDragEvent", { type: "drop", x: dx, y: dy, data });
-    } catch (e) {
-      return { content: [{ type: "text", text: `upload_file failed: the target is not a file input and drag-and-drop errored (${e.message}). Target the <input type="file"> element directly via read_page/find and pass its ref.` }] };
-    } finally {
-      if (interceptEnabled) cdp(tabId, "Input.setInterceptDrags", { enabled: false }).catch(() => {});
-    }
-    return { content: [{ type: "text", text: `No file input was found at the target, so a drag-and-drop of ${path} was dispatched at (${dx}, ${dy}). If the page does not receive the file, target the <input type="file"> element directly via read_page/find and pass its ref.` }] };
+    const label = paths.length === 1 ? paths[0] : `${paths.length} files`;
+    return { content: [{ type: "text", text: `Attached ${label} to the file input (ref=${ref}).` }] };
   },
 
   async gif_creator(args) {
@@ -1718,7 +1527,6 @@ const recorder = {
   startedAt: null,
   deliveredIds: new Set(), // recording_ids Claude has acked
   pendingSaves: new Map(), // recording_id -> resolve (native-host disk write)
-  pendingTraceWrites: new Map(), // write_id -> resolve (retry trace.json write)
   imgSeq: 0, // frame counter for the images/ dir
   lastCapture: 0, // ts of last frame, to throttle to ≤1/sec
   lastVw: 0, // last viewport size seen (from content-script events), stamped
@@ -2171,39 +1979,6 @@ async function saveBundleToDisk(bundle) {
   } catch {
     recorder.pendingSaves.delete(String(bundle.recording_id));
     return null;
-  }
-  return await done;
-}
-
-// Overwrite trace.json on disk for a recording (retranscribe path). Distinct
-// from saveBundleToDisk because a retry only re-writes the trace — the audio
-// and schema are already on disk.
-// Monotonic id so each write_trace call is individually correlated to its
-// reply. The native host echoes write_id back; without it, concurrent
-// retranscribe calls for the same recording_id couldn't be distinguished, and
-// one call's timeout or a stale reply would settle another call's promise with
-// the wrong result.
-let traceWriteSeq = 0;
-
-async function writeTraceToDisk(recording_id, trace) {
-  if (!nativePort) return false;
-  // String() on both the key and the reply lookup (String(msg.write_id)) so the
-  // ack settles the promise: a numeric key vs string lookup would never match
-  // in a JS Map (1 !== "1") and every retranscribe would stall its full 8s
-  // timeout and report a write failure even though trace.json was written.
-  const writeId = String(++traceWriteSeq);
-  const done = new Promise((resolve) => {
-    // Keyed by writeId, not recording_id: each call gets its own slot so a
-    // timeout or reply settles exactly this call, never a concurrent sibling.
-    recorder.pendingTraceWrites.set(writeId, resolve);
-    setTimeout(() => {
-      if (recorder.pendingTraceWrites.delete(writeId)) resolve(false);
-    }, 8000);
-  });
-  try {
-    nativePort.postMessage({ type: "write_trace", recording_id, write_id: writeId, trace });
-  } catch {
-    if (recorder.pendingTraceWrites.delete(writeId)) return false;
   }
   return await done;
 }

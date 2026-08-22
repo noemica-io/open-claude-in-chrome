@@ -72,7 +72,7 @@ Yes — and rather than assert it, here is a benchmark. **[Read the full study �
 <img src="docs/img/parity.png" alt="Turns per task against suite latency: the official extension and this harness cold are ringed together as statistically indistinguishable, with an arrow to this harness's best method showing 23% fewer turns and 15% less time" width="820">
 </p>
 
-13 arms, each run over the same 12 held-out tasks from the
+17 arms, each run over the same 12 held-out tasks from the
 [REAL](https://github.com/agi-inc/REAL) web-agent benchmark, same model and
 effort throughout (Sonnet, medium). What it found:
 
@@ -411,31 +411,51 @@ If the model still uses direct tools on the second submission, that's a signal t
 
 ## Available Tools
 
-All 21 tools, identical to Claude in Chrome:
+Every tool, its purpose, and its parity with the official Claude in Chrome extension:
 
-| Tool | Description |
-|------|-------------|
-| `tabs_context_mcp` | Get tab group context |
-| `tabs_create_mcp` | Create new tab |
-| `tabs_close_mcp` | Close a tab |
-| `navigate` | Navigate to URL, back, forward |
-| `computer` | Mouse, keyboard, screenshots (13 actions) |
-| `read_page` | Accessibility tree with element refs |
-| `get_page_text` | Extract article/main text |
-| `find` | Find elements by text/attributes |
-| `form_input` | Set form values by ref |
-| `javascript_tool` | Execute JS in page context |
-| `read_console_messages` | Console output (filtered) |
-| `read_network_requests` | Network activity |
-| `resize_window` | Resize browser window |
-| `upload_image` | Upload screenshot to file input |
-| `upload_file` | Upload an arbitrary local file to a file input |
-| `gif_creator` | GIF recording (stub) |
-| `shortcuts_list` | List shortcuts (stub) |
-| `shortcuts_execute` | Run shortcut (stub) |
-| `switch_browser` | Switch browser (stub) |
-| `update_plan` | Present plan (auto-approved) |
-| `retranscribe_recording` | Re-run transcription for a failed recording (most recent) |
+- **✓** — in parity with Claude in Chrome (same interface, same behavior)
+- **✗** — present but diverges (a stub, or a capability gap — see the notes)
+- *(blank)* — a new tool with no Claude in Chrome equivalent
+
+| Tool | Purpose | Parity |
+|------|---------|:------:|
+| `tabs_context_mcp` | Get tab group context | ✓ |
+| `tabs_create_mcp` | Create a new tab | ✓ |
+| `tabs_close_mcp` | Close a tab | ✓ |
+| `navigate` | Navigate to URL, back, forward | ✓ |
+| `computer` | Mouse, keyboard, screenshot, zoom | ✓ |
+| `read_page` | Accessibility tree with element refs | ✓ |
+| `get_page_text` | Extract article/main text | ✓ |
+| `find` | Find elements by text/attributes | ✓ |
+| `form_input` | Set form values by ref | ✓ |
+| `javascript_tool` | Execute JS in page context | ✓ |
+| `read_console_messages` | Console output (filtered) | ✓ |
+| `read_network_requests` | Network activity | ✓ |
+| `resize_window` | Resize browser window | ✓ |
+| `file_upload` | Attach local file(s) to a file input (by ref) | ✓ |
+| `upload_image` | Attach a captured screenshot to a file input (by ref) | ✗ |
+| `gif_creator` | GIF recording | ✗ |
+| `shortcuts_list` | List shortcuts | ✗ |
+| `shortcuts_execute` | Run a shortcut | ✗ |
+| `switch_browser` | Hand off automation to another Chromium browser | ✗ |
+| `execute_code` | Run sandboxed JS that drives every tool via `chrome.*` | |
+| `update_plan` | Present a plan for approval | |
+| `recording_ack` | Confirm an imitation-learning recording event | |
+| `retranscribe_recording` | Re-run transcription for a failed recording | |
+
+Notes on the divergences (✗):
+
+- `file_upload` matches Claude in Chrome's interface (`paths`, `ref`, `tabId`) but does **not** restrict sources to session-shared paths — any absolute path on this machine is accepted.
+- `upload_image` is file-input-only (target it by `ref`); Claude in Chrome additionally supports dropping an image at a `coordinate` (e.g. Google Docs).
+- `gif_creator`, `shortcuts_list`, and `shortcuts_execute` are stubs.
+- `switch_browser` releases the shared runtime for ~15s so another browser can take over, in place of Claude in Chrome's `list_connected_browsers` / `select_browser` pair.
+
+### Claude in Chrome tools not yet supported in Open Claude in Chrome
+
+- `browser_batch` — run several tool calls in one round trip. Open Claude in Chrome instead offers `execute_code`, which runs arbitrary JS driving the same tools in one call.
+- `list_connected_browsers` — enumerate attached browsers.
+- `select_browser` — pick which browser drives automation.
+- `upload_image` drop-at-coordinate — Open Claude in Chrome's `upload_image` attaches to a file input by `ref` only.
 
 ## Updating After Code Changes
 
