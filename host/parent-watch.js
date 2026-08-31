@@ -23,11 +23,40 @@
 // rule, which costs one query and cannot be fooled by reuse.
 
 import { execFile } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
-const LIVENESS_MS = 30_000;
+// An MCP server's stderr is captured by its client, and a process.exit() can
+// truncate the last write before it is flushed — so "the reaper printed no
+// message" is not evidence the reaper stayed quiet. Leave a breadcrumb on disk
+// instead, the way the native host does, so the question is answerable.
+function recordExit(reason) {
+  try {
+    const file = path.join(
+      os.homedir(),
+      ".config",
+      "open-claude-in-chrome",
+      "server-exits.log"
+    );
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const line = `${new Date().toISOString()} pid=${process.pid} ppid=${process.ppid} ${reason}\n`;
+    let prev = "";
+    try {
+      prev = fs.readFileSync(file, "utf-8");
+    } catch {}
+    fs.writeFileSync(file, (prev + line).split("\n").slice(-200).join("\n"));
+  } catch {}
+}
+
+// Tunable so this is testable in seconds. A watchdog that only acts after 30s,
+// and whose second check only fires at 5 minutes, cannot be covered by any test
+// that finishes quickly — which is exactly how a bug here reaches a user: every
+// check passes, because every check is too fast to reach the code that kills.
+const LIVENESS_MS = Number(process.env.OCIC_PARENT_CHECK_MS) || 30_000;
 // Identity is the expensive check and the slow-moving risk: a recycled PID can
 // only keep us alive until the next one.
-const IDENTITY_EVERY = 10; // ticks, so ~5 minutes
+const IDENTITY_EVERY = Number(process.env.OCIC_IDENTITY_EVERY) || 10; // ~5 min
 
 // Creation time of `pid`, in ms since epoch, or null if it cannot be read.
 //
@@ -98,11 +127,18 @@ export function watchParent(onOrphaned) {
     if (fired) return;
     fired = true;
     clearInterval(timer);
+    recordExit(`REAPER FIRED: ${why}`);
     try {
       process.stderr.write(`Parent process is gone (${why}); exiting.\n`);
     } catch {}
     onOrphaned();
   };
+
+  // Whatever ends this process, say so — so a death the reaper had nothing to
+  // do with can be told apart from one it caused, instead of inferred.
+  process.on("exit", (code) => {
+    if (!fired) recordExit(`process exit (code=${code}), reaper did not fire`);
+  });
 
   const idleLimit = parseInt(process.env.OCIC_IDLE_EXIT_MS || "", 10);
 

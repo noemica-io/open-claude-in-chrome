@@ -277,6 +277,35 @@ await test("a client that vanishes mid-request does not take the host down", asy
   ext.kill();
 });
 
+await test("the host forgets clients that go away", async (pipe) => {
+  // A live host was found holding 28 client entries, far more than the number
+  // of sessions that had ever existed. If entries survive their sockets the
+  // table grows for the life of the browser, and every recording broadcast
+  // walks a list mostly made of corpses.
+  const ext = fakeExtension();
+  await waitFor(async () => await bridgeIsHeld(pipe), 5000, "host serving");
+
+  const clients = [];
+  for (let i = 0; i < 12; i++) clients.push(fakeClient(pipe, `c${i}`));
+  await Promise.all(clients.map((c) => c.ready));
+  await waitFor(
+    async () => /attached \(12 total\)/.test(ext.stderrText()),
+    5000,
+    "host counts 12 attached"
+  );
+
+  // Half leave politely, half vanish without a FIN.
+  clients.slice(0, 6).forEach((c) => c.close());
+  clients.slice(6).forEach((c) => c.hardKill());
+
+  await waitFor(
+    async () => /detached \(0 left\)/.test(ext.stderrText()),
+    5000,
+    "host drops back to 0 clients — entries did not leak"
+  );
+  ext.kill();
+});
+
 await test("stale clients cannot block a fresh host from owning the bridge", async (pipe) => {
   // The #41 scenario: sessions died long ago but their MCP processes live on.
   // Under host-owned ownership they are only clients, so they hold nothing.
@@ -376,6 +405,45 @@ await test("a session survives the host being respawned under it", async (pipe) 
   assert((await c2.call("navigate")).result?.echo === "navigate", "not serving after respawn");
   c2.close();
   ext2.kill();
+});
+
+await test("a session started before the browser reconnects when it appears", async (pipe) => {
+  // The real sequence that broke a session today: the MCP server came up while
+  // no browser was running, so it sat in its reconnect loop for five minutes —
+  // hundreds of failed connects — before a host finally appeared. Every other
+  // test here hands the session a host that already exists, so this path, the
+  // one an ordinary user hits every time they open their editor before their
+  // browser, had never been exercised at all.
+  const session = spawn(process.execPath, [SESSION], {
+    env: { ...process.env, OCIC_PIPE: pipe },
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  const err = [];
+  session.stderr.on("data", (c) => err.push(c.toString()));
+
+  // Long enough for many retry cycles against nothing.
+  await sleep(6000);
+  assert(session.exitCode === null, `session died while waiting: ${err.join("").slice(0, 300)}`);
+  assert(
+    !/Joined the browser bridge/.test(err.join("")),
+    "session claims it joined a bridge that does not exist"
+  );
+
+  const ext = fakeExtension();
+  ext.autoRespond();
+  await waitFor(
+    async () => /Joined the browser bridge/.test(err.join("")),
+    8000,
+    "session reconnects once the host appears"
+  );
+
+  // And it must actually work, not just report a connection.
+  const c = fakeClient(pipe, "alongside");
+  await c.ready;
+  assert((await c.call("navigate")).result?.echo === "navigate", "bridge not serving");
+  c.close();
+  session.kill();
+  ext.kill();
 });
 
 await test("a waiting host takes over promptly when the owner releases", async (pipe) => {

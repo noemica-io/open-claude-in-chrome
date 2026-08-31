@@ -420,6 +420,7 @@ process.stdin.on("data", (chunk) => {
 });
 
 process.stdin.on("end", () => {
+  recordExit(`extension disconnected (clients: ${clients.size})`);
   // Extension disconnected. Drop the bridge immediately rather than lingering:
   // with no extension there is no browser link to own, and holding the pipe
   // would stop the host Chrome spawns next from claiming it.
@@ -449,16 +450,36 @@ process.stdin.on("end", () => {
 // Armed only after we have actually seen heartbeats. An extension too old to
 // send them would otherwise look permanently deaf, and we would exit-loop —
 // which is why this is safe to ship ahead of any extension change.
-const SILENCE_LIMIT_MS = 60_000;
+const SILENCE_LIMIT_MS = Number(process.env.OCIC_SILENCE_LIMIT_MS) || 60_000;
+
+// Chrome owns this process's stderr and throws it away, so when the host exits
+// there is no way to find out why — which made a host that was cycling every 12
+// minutes impossible to explain from the outside. Leave a breadcrumb on disk
+// instead. One line, truncated, never grows without bound.
+function recordExit(reason) {
+  try {
+    const file = path.join(os.homedir(), ".config", "open-claude-in-chrome", "host-exits.log");
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const line = `${new Date().toISOString()} pid=${process.pid} ${reason}\n`;
+    let prev = "";
+    try {
+      prev = fs.readFileSync(file, "utf-8");
+    } catch {}
+    // Keep the last ~200 lines; a cycling host would otherwise write forever.
+    const kept = (prev + line).split("\n").slice(-200).join("\n");
+    fs.writeFileSync(file, kept);
+  } catch {}
+}
 
 setInterval(() => {
   if (heartbeatsSeen < 2) return; // never saw a heartbeat: not our signal to use
   const silentFor = Date.now() - lastExtensionTraffic;
   if (silentFor < SILENCE_LIMIT_MS) return;
-  process.stderr.write(
-    `No word from the extension for ${Math.round(silentFor / 1000)}s — exiting so ` +
-      `a fresh host can take the bridge.\n`
-  );
+  const reason =
+    `watchdog: no word from the extension for ${Math.round(silentFor / 1000)}s ` +
+    `(heartbeats seen: ${heartbeatsSeen}, clients: ${clients.size})`;
+  process.stderr.write(`${reason} — exiting so a fresh host can take the bridge.\n`);
+  recordExit(reason);
   process.exit(0);
 }, 15_000).unref();
 
