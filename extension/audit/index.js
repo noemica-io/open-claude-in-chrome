@@ -122,8 +122,32 @@ function newStreamId(tabId, t) {
  * one, which is correct — a new document needs its own snapshot, and pretending
  * otherwise would yield a replay that cannot be reconstructed.
  */
+// Pages an audit should never contain. Chrome refuses injection on its own
+// surfaces anyway, but the extension's OWN pages accept it — so without this,
+// opening the Audits tab records the audit viewer, and reviewing a session
+// quietly creates another one. A recorder that films itself is noise.
+function isUnauditable(url) {
+  if (!url) return false;
+  return (
+    url.startsWith("chrome://") ||
+    url.startsWith("chrome-extension://") ||
+    url.startsWith("devtools://") ||
+    url.startsWith("edge://") ||
+    url.startsWith("brave://") ||
+    url.startsWith("about:") ||
+    url.startsWith("https://chrome.google.com/webstore") ||
+    url.startsWith("https://chromewebstore.google.com")
+  );
+}
+
 export async function ensureStream(tabId, opts = {}) {
   if (!enabled) return null;
+  try {
+    const t = await chrome.tabs.get(tabId);
+    if (isUnauditable(t && t.url)) return null;
+  } catch {
+    /* tab vanished; the injection below will fail harmlessly */
+  }
   try {
     const pong = await chrome.tabs.sendMessage(tabId, { type: "audit_ping" }).catch(() => null);
     if (pong && pong.streamId) return pong.streamId;
