@@ -1347,17 +1347,7 @@ const toolHandlers = {
     } else {
       let targetUrl = url;
       // Strip any malformed protocol prefix before normalizing
-      // chrome-extension: is allowed so the agent can reach this extension's own
-      // pages — the options page is where audits and recordings are reviewed,
-      // and without this it was the one destination the browser tool could not
-      // open, silently turning into https://chrome-extension://...
-      if (
-        !targetUrl.match(/^https?:\/\//i) &&
-        !targetUrl.startsWith("about:") &&
-        !targetUrl.startsWith("chrome:") &&
-        !targetUrl.startsWith("chrome-extension:") &&
-        !targetUrl.startsWith("brave:")
-      ) {
+      if (!targetUrl.match(/^https?:\/\//i) && !targetUrl.startsWith("about:") && !targetUrl.startsWith("chrome:") && !targetUrl.startsWith("brave:")) {
         // Remove any partial/broken protocol prefix (e.g., "hps://", "http:/", "ht://")
         targetUrl = targetUrl.replace(/^[a-z]{1,5}:\/+/i, "");
         targetUrl = "https://" + targetUrl;
