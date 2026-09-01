@@ -445,6 +445,8 @@ Every tool, its purpose, and its parity with the official Claude in Chrome exten
 | `set_config` | Change a setting, globally or for one tab | |
 | `recording_ack` | Confirm an imitation-learning recording event | |
 | `retranscribe_recording` | Re-run transcription for a failed recording | |
+| `debug` | Read what the extension actually did — the detail tool results omit | |
+| `debug_timings` | Per-call timing diagnostics | |
 
 Notes on the divergences (✗):
 
@@ -495,13 +497,70 @@ tier measured at ~4.2s for the same text was cut, because a setting nobody
 would pick is a trap rather than an option.
 
 
-Both settings can be scoped to one tab (`set_config({ key, value, tabId })`),
+Settings can be scoped to one tab (`set_config({ key, value, tabId })`),
 and `get_config` returns the catalog of recognised settings so the current set
 is always discoverable rather than documented only here.
 
 Note that typing emits real `keydown`/`keyup` events **regardless** of this
 setting — that is parity with Claude in Chrome, which does the same, not a
 humanization extra. `humanize` only changes the timing between them.
+
+## Auditing agent sessions
+
+Watch back what an agent did in the browser, instead of asking the session to
+describe its own work. Off by default:
+
+```js
+set_config({ key: "audit_mode", value: "audit" })
+```
+
+With it on, the first action against a tab starts an [rrweb](https://rrweb.io)
+DOM recording in it, and the extension stitches those into **one timeline per
+Claude Code session**, under **Audits** on the options page. Press play once and
+the replay runs start to finish, switching tabs on its own.
+
+It is a *mode* rather than a flag because a later `teach` mode wants the
+opposite masking default — an audit should mask what a person types, while
+training data is exactly that text.
+
+**How a session is attributed.** The native host already namespaces every
+request as `h{clientId}_{id}` so replies route back to the client that asked,
+and the extension echoes that id back untouched. Reading the prefix is enough to
+know which Claude Code session performed an action, so two agents driving two
+tabs produce two independent audits rather than one interleaved mess.
+
+**Streams and segments.** rrweb node ids are integers scoped to a single
+snapshot, so two tabs' event streams can never be concatenated — the ids would
+collide and both replays would corrupt. A **stream** is therefore one recording
+in one tab, living until its document does, and a **segment** is a run of
+consecutive actions in one tab. Returning to a tab opens a *new* segment over
+the *same* stream. Continuity is built at the timeline layer, never in the data.
+
+A stream costs almost nothing while idle, because rrweb is event driven, but
+restarting one costs a full DOM snapshot — so the policy favours keeping streams
+alive: a 30-minute idle reaper and a 40MB cap exist only to stop a runaway page.
+Hitting the cap marks the stream `truncated` rather than silently stopping,
+since a replay that just ends looks identical to a session that ended there.
+
+**What it does and does not capture.** Recording runs in the extension's
+isolated world, so the page cannot observe it — no web API exposes content
+scripts — where a main-world injection would have to patch natives and could be
+spotted with a `toString` check. Canvas recording stays off: it is the one rrweb
+feature touching natives (`toDataURL`/`getImageData`) that anti-fingerprinting
+sweeps already watch.
+
+The cost of that choice is real and worth knowing before relying on a replay:
+
+| Captured | Not captured |
+|---|---|
+| DOM structure, text, attributes, ARIA | Video and audio content (elements and play/pause only; `blob:`/MSE sources will not replay) |
+| Mutations, input, scroll, mouse | Canvas and WebGL |
+| Open shadow roots, adopted stylesheets | Closed shadow roots created before recording started |
+| Same-origin CSS (inlined) | Cross-origin CSS — CORS-blocked, cannot be inlined |
+| | Assets behind auth or short TTLs, which are referenced by URL and re-fetched at replay |
+
+In short it is excellent for anything marked up and blind to anything *painted*,
+which is why the recorder's own image track is not replaced by it.
 
 ### Claude in Chrome tools not yet supported in Open Claude in Chrome
 
