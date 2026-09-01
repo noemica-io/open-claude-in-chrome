@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Audit UI — dev harness</title>
+<!--
+  DEV HARNESS ONLY — not part of the shipped extension.
+
+  This exists so the Audits UI can be designed and reviewed without reloading
+  the extension for every change. It renders exactly the markup and tokens the
+  options page will use, against a real audit.json captured from a live run, so
+  porting it over is a copy rather than a rewrite.
+
+  Serve from the REPO ROOT so ../../extension/vendor resolves:
+    python3 -m http.server 8860
+    open http://localhost:8860/scratch/audit-ui/
+-->
+<link rel="stylesheet" href="../../extension/vendor/rrweb-player.min.css">
+<style>
+  :root { --bg:#f7f7f5; --panel:#fff; --ink:#1c1e22; --muted:#5b5f66; --line:#e2e2dd; --accent:#2a5fd8; --rec:#d23b2e; --ok:#0e8a5f; }
+  @media (prefers-color-scheme:dark){ :root{ --bg:#15171b; --panel:#1c1f24; --ink:#e8eaee; --muted:#9aa0a8; --line:#2a2e35; --accent:#7fa3ff; --rec:#e5604f; --ok:#3fbf8f; } }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:1180px;margin:0 auto;padding:28px 28px 64px}
+  h1{font-size:20px;margin:0 0 4px} .sub{color:var(--muted);margin:0 0 20px;font-size:13px}
+
+  /* ---- tab bar: Audits | Recordings ---- */
+  .tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:0 0 20px}
+  .tabs button{appearance:none;border:0;background:transparent;color:var(--muted);font:inherit;font-weight:600;
+    padding:9px 15px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;border-radius:0}
+  .tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+  .tabs button:hover{color:var(--ink)}
+
+  .cols{display:grid;grid-template-columns:264px minmax(0,1fr);gap:18px;align-items:start}
+  @media (max-width:900px){ .cols{grid-template-columns:1fr} }
+
+  /* ---- session list ---- */
+  .slist{display:flex;flex-direction:column;gap:7px}
+  .sitem{text-align:left;width:100%;background:var(--panel);border:1px solid var(--line);border-radius:9px;
+    padding:10px 12px;cursor:pointer;color:var(--ink);font:inherit;display:flex;flex-direction:column;gap:3px}
+  .sitem:hover{border-color:var(--accent)}
+  .sitem[aria-current="true"]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+  .sitem .id{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:var(--accent)}
+  .sitem .ttl{font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sitem .meta{color:var(--muted);font-size:11.5px;font-variant-numeric:tabular-nums}
+
+  /* ---- player panel ---- */
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .phead{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin:0 0 10px}
+  .phead .url{color:var(--muted);font-size:12px;font-family:ui-monospace,Menlo,monospace;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+  .badge{font-size:11px;font-weight:600;padding:2px 7px;border-radius:20px;border:1px solid var(--line);color:var(--muted)}
+  .badge.live{color:var(--ok);border-color:var(--ok)}
+  .badge.trunc{color:var(--rec);border-color:var(--rec)}
+
+  /* ---- segment strip: the tab-A → tab-B → tab-A timeline ---- */
+  .segs{display:flex;gap:6px;overflow-x:auto;padding:2px 0 8px}
+  .seg{flex:0 0 auto;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--ink);
+    font:inherit;font-size:12px;padding:7px 11px;cursor:pointer;display:flex;flex-direction:column;gap:1px;min-width:104px}
+  .seg:hover{border-color:var(--accent)}
+  .seg[aria-current="true"]{border-color:var(--accent);background:var(--panel);box-shadow:0 0 0 1px var(--accent) inset}
+  .seg .n{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--muted)}
+  .seg .tab{font-weight:600}
+  .seg .cnt{color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
+
+  /* ---- action markers: jump action-to-action ---- */
+  .marks{margin:10px 0 0;border-top:1px solid var(--line);padding-top:10px}
+  .marks h4{margin:0 0 7px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+  .mrow{display:flex;flex-wrap:wrap;gap:5px}
+  .mark{border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit;
+    font-size:11.5px;padding:4px 9px;cursor:pointer;display:flex;gap:7px;align-items:baseline}
+  .mark:hover{border-color:var(--accent)}
+  .mark .t{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .mark .tool{font-weight:600}
+
+  #player{margin-top:4px}
+  #player .rr-player{max-width:100%}
+  .empty{color:var(--muted);font-size:13px;padding:28px 0;text-align:center}
+  .err{color:var(--rec);font-size:13px;font-family:ui-monospace,Menlo,monospace;white-space:pre-wrap}
+  .hintbar{color:var(--muted);font-size:12px;margin:10px 0 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Open Claude in Chrome</h1>
+  <p class="sub">Dev harness for the Audits pane — same markup and tokens as the options page.</p>
+
+  <div class="tabs" role="tablist">
+    <button role="tab" aria-selected="true" id="tab-audits">Audits</button>
+    <button role="tab" aria-selected="false" id="tab-recordings">Recordings</button>
+  </div>
+
+  <div class="cols" id="pane-audits">
+    <div>
+      <div class="slist" id="slist"></div>
+      <p class="hintbar" id="loadnote"></p>
+    </div>
+    <div class="panel">
+      <div class="phead">
+        <strong id="segTitle">No session</strong>
+        <span class="url" id="segUrl"></span>
+        <span class="badge" id="segBadge" hidden></span>
+      </div>
+      <div class="segs" id="segs"></div>
+      <div id="player"></div>
+      <div class="marks" id="marks" hidden>
+        <h4>Actions in this segment — click to jump</h4>
+        <div class="mrow" id="mrow"></div>
+      </div>
+      <p class="err" id="err" hidden></p>
+    </div>
+  </div>
+
+  <div id="pane-recordings" hidden>
+    <p class="empty">The existing Recordings UI lives here on the options page.</p>
+  </div>
+</div>
+
+<script src="../../extension/vendor/rrweb-player.umd.min.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+let DATA = null;      // { sessions: [ {meta, payload} ] }
+let cur = { session: null, segIndex: 0, player: null };
+
+// The dev harness loads whatever fixtures are listed; the options page will
+// read the same shapes out of IndexedDB instead.
+async function load() {
+  try {
+    const idx = await fetch("fixtures/index.json", { cache: "no-store" }).then((r) => r.json());
+    const sessions = [];
+    for (const f of idx.files) {
+      const payload = await fetch("fixtures/" + f, { cache: "no-store" }).then((r) => r.json());
+      sessions.push(payload);
+    }
+    DATA = { sessions };
+    $("loadnote").textContent = `${sessions.length} fixture${sessions.length === 1 ? "" : "s"} loaded`;
+    renderSessions();
+    if (sessions.length) selectSession(0);
+  } catch (e) {
+    $("loadnote").textContent = "";
+    showErr("Could not load fixtures/index.json — " + e.message +
+      "\nCapture a run first, then copy audit.json into scratch/audit-ui/fixtures/.");
+  }
+}
+
+function showErr(m) { const el = $("err"); el.hidden = false; el.textContent = m; }
+
+function fmtClock(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+function fmtWhen(t) {
+  return new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function renderSessions() {
+  const host = $("slist");
+  host.innerHTML = "";
+  DATA.sessions.forEach((p, i) => {
+    const s = p.session, segs = p.segments || [];
+    const firstStream = segs.length ? p.streams[segs[0].streamId] : null;
+    const b = document.createElement("button");
+    b.className = "sitem";
+    b.setAttribute("aria-current", String(i === 0));
+    b.innerHTML =
+      `<span class="id">client ${s.clientId}</span>` +
+      `<span class="ttl"></span>` +
+      `<span class="meta">${segs.length} segment${segs.length === 1 ? "" : "s"} · ` +
+      `${(s.actions || []).length} actions · ${fmtWhen(s.startedAt)}</span>`;
+    b.querySelector(".ttl").textContent = (firstStream && firstStream.title) || s.sessionId;
+    b.onclick = () => selectSession(i);
+    host.appendChild(b);
+  });
+}
+
+function selectSession(i) {
+  cur.session = DATA.sessions[i];
+  [...$("slist").children].forEach((c, j) => c.setAttribute("aria-current", String(i === j)));
+  renderSegments();
+  selectSegment(0);
+}
+
+function renderSegments() {
+  const host = $("segs");
+  host.innerHTML = "";
+  const { segments, streams } = cur.session;
+  if (!segments.length) { host.innerHTML = '<span class="empty">No recorded segments.</span>'; return; }
+  segments.forEach((seg, i) => {
+    const st = streams[seg.streamId];
+    const b = document.createElement("button");
+    b.className = "seg";
+    b.innerHTML =
+      `<span class="n">${String(i + 1).padStart(2, "0")}</span>` +
+      `<span class="tab">tab ${seg.tabId}</span>` +
+      `<span class="cnt">${seg.actions.length} action${seg.actions.length === 1 ? "" : "s"} · ${fmtClock(seg.tEnd - seg.tStart)}</span>`;
+    b.title = (st && st.url) || seg.streamId;
+    b.onclick = () => selectSegment(i);
+    host.appendChild(b);
+  });
+}
+
+function selectSegment(i) {
+  const { segments, streams } = cur.session;
+  cur.segIndex = i;
+  [...$("segs").children].forEach((c, j) => c.setAttribute && c.setAttribute("aria-current", String(i === j)));
+  const seg = segments[i];
+  if (!seg) return;
+  const st = streams[seg.streamId];
+
+  $("segTitle").textContent = (st && st.title) || `Segment ${i + 1}`;
+  $("segUrl").textContent = (st && st.url) || "";
+  const badge = $("segBadge");
+  if (st && st.truncated) { badge.hidden = false; badge.className = "badge trunc"; badge.textContent = "truncated — size cap"; }
+  else if (st && !st.endedAt) { badge.hidden = false; badge.className = "badge live"; badge.textContent = "still open"; }
+  else badge.hidden = true;
+
+  mountPlayer(st, seg);
+  renderMarks(st, seg);
+}
+
+function mountPlayer(stream, seg) {
+  const host = $("player");
+  host.innerHTML = "";
+  if (cur.player) cur.player = null;
+  if (!stream || !stream.events || stream.events.length < 2) {
+    host.innerHTML = '<p class="empty">This segment has too few events to replay.</p>';
+    return;
+  }
+  try {
+    cur.player = new rrwebPlayer({
+      target: host,
+      props: {
+        events: stream.events,
+        width: Math.min(host.clientWidth || 900, 1000),
+        height: 480,
+        autoPlay: false,
+        showController: true
+      }
+    });
+    // Open on the moment the agent first acted here, not at the page's birth —
+    // the interesting part is the action, and a few seconds around it.
+    const t0 = stream.events[0].timestamp;
+    seekTo(seg.tStart - t0 - 1000);
+  } catch (e) {
+    showErr("Player failed: " + e.message);
+  }
+}
+
+function seekTo(offsetMs) {
+  if (!cur.player) return;
+  try { cur.player.goto(Math.max(0, offsetMs)); } catch {}
+}
+
+function renderMarks(stream, seg) {
+  const wrap = $("marks"), row = $("mrow");
+  row.innerHTML = "";
+  if (!stream || !stream.events.length) { wrap.hidden = true; return; }
+  const t0 = stream.events[0].timestamp;
+  wrap.hidden = false;
+  seg.actions.forEach((a) => {
+    const b = document.createElement("button");
+    b.className = "mark";
+    b.innerHTML = `<span class="t">${fmtClock(a.t - t0)}</span><span class="tool"></span>`;
+    b.querySelector(".tool").textContent = a.action ? `${a.tool}.${a.action}` : a.tool;
+    b.title = a.detail || "";
+    // Land a beat BEFORE the action so the click is seen in context rather
+    // than as a jump-cut to its aftermath.
+    b.onclick = () => seekTo(a.t - t0 - 1500);
+    row.appendChild(b);
+  });
+}
+
+$("tab-audits").onclick = () => switchTab(true);
+$("tab-recordings").onclick = () => switchTab(false);
+function switchTab(audits) {
+  $("tab-audits").setAttribute("aria-selected", String(audits));
+  $("tab-recordings").setAttribute("aria-selected", String(!audits));
+  $("pane-audits").hidden = !audits;
+  $("pane-recordings").hidden = audits;
+}
+
+load();
+</script>
+</body>
+</html>

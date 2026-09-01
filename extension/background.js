@@ -2,6 +2,7 @@
 // Handles: native messaging, CDP via chrome.debugger, tool dispatch, tab group management.
 
 import * as humanize from "./humanize/index.js";
+import * as audit from "./audit/index.js";
 
 // Prevent unhandled rejections from killing the service worker
 self.addEventListener("unhandledrejection", (event) => {
@@ -887,10 +888,24 @@ const CONFIG_SCHEMA = {
     "compresses it, for when there is a lot to get through. Every tier keeps " +
     "movement before the click, real key events and identical outcomes — faster " +
     "tiers use fewer path samples and shorter pauses, never none. Only applies " +
-    "while humanize is true."
+    "while humanize is true.",
+  audit_mode:
+    "Passively record what this agent does in the browser, so a person can watch " +
+    "it back. \"off\" (default) records nothing and costs nothing. \"audit\" " +
+    "starts an rrweb DOM recording in each tab the first time an action touches " +
+    "it, and stitches those into one timeline per Claude Code session, viewable " +
+    "under Audits on the extension's options page. Recording runs in the " +
+    "extension's isolated world, so the page cannot observe it, and captures DOM " +
+    "rather than pixels — video and canvas content are not captured. This is a " +
+    "mode rather than a flag because a future \"teach\" mode wants the opposite " +
+    "masking defaults."
 };
 
-let configState = { default: { humanize: false, humanize_speed: "fast", humanize_seed: null }, byTab: {} };
+const AUDIT_MODES = ["off", "audit"];
+let configState = {
+  default: { humanize: false, humanize_speed: "fast", humanize_seed: null, audit_mode: "off" },
+  byTab: {}
+};
 let configHydrated = null;
 
 async function hydrateConfig() {
@@ -898,17 +913,24 @@ async function hydrateConfig() {
     const local = await chrome.storage.local.get(CONFIG_KEY);
     const session = await chrome.storage.session.get(TAB_CONFIG_KEY);
     configState = {
-      default: { humanize: false, humanize_speed: "fast", humanize_seed: null, ...(local[CONFIG_KEY] || {}) },
+      default: {
+        humanize: false, humanize_speed: "fast", humanize_seed: null, audit_mode: "off",
+        ...(local[CONFIG_KEY] || {})
+      },
       byTab: session[TAB_CONFIG_KEY] || {}
     };
   } catch {}
   return configState;
 }
 // MV3 evicts this worker, so re-hydrate at every start and keep the cache live.
-configHydrated = hydrateConfig();
+configHydrated = hydrateConfig().then((c) => {
+  audit.setEnabled(c.default.audit_mode === "audit");
+  return c;
+});
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && changes[CONFIG_KEY]) {
-    configState.default = { humanize: false, ...(changes[CONFIG_KEY].newValue || {}) };
+    configState.default = { humanize: false, audit_mode: "off", ...(changes[CONFIG_KEY].newValue || {}) };
+    audit.setEnabled(configState.default.audit_mode === "audit");
   }
   if (area === "session" && changes[TAB_CONFIG_KEY]) {
     configState.byTab = changes[TAB_CONFIG_KEY].newValue || {};
@@ -2568,6 +2590,34 @@ async function handleToolRequest(id, tool, args) {
   const t0 = Date.now();
   const label = tool === "computer" ? `computer.${args && args.action}` : tool;
   dbg("tool", `${label} <- ${argSummary(args)}`, { tab: args && args.tabId });
+
+  // Attribute this action to the Claude Code session that asked for it. The
+  // host namespaces every request as `h{clientId}_{id}` and we echo that id
+  // back untouched, so the client is already identifiable here with no
+  // protocol change on either side. Two sessions driving two tabs therefore
+  // produce two independent audits rather than one interleaved mess.
+  //
+  // Awaited deliberately: the recorder must be attached BEFORE the action runs,
+  // or the first action on a tab is the one action the replay is missing.
+  if (audit.isEnabled()) {
+    const clientId = (String(id).match(/^h(\d+)_/) || [])[1] ?? null;
+    await audit
+      .noteAction({
+        clientId,
+        tool,
+        action: args && args.action,
+        tabId: args && args.tabId,
+        detail: argSummary(args),
+        // Passed rather than imported so the audit module stays free of any
+        // native-host coupling — the seam that keeps it foldable later.
+        postToHost: (m) => {
+          try {
+            if (nativePort) nativePort.postMessage(m);
+          } catch {}
+        }
+      })
+      .catch(() => {});
+  }
   try {
     const t0 = Date.now();
     const result = await handler(args);
@@ -3144,6 +3194,10 @@ chrome.action.onClicked.addListener(() => {
 // Every gate awaits hydration: an event arriving right after SW wake-up must
 // still be forwarded to the (still-recording) offscreen buffer.
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg && msg.type === "audit_events") {
+    audit.ingest(msg).catch(() => {});
+    return; // fire-and-forget; the tab does not wait on us
+  }
   if (!msg) return;
   if (msg.__ocic === "behavior_event") {
     recorderReady.then(() => {
@@ -3224,7 +3278,10 @@ chrome.tabs.onCreated.addListener((tab) =>
   recordSwEvent("tab_opened", tab.id, { url: tab.url || tab.pendingUrl })
 );
 // Close a tab → tab_closed.
-chrome.tabs.onRemoved.addListener((tabId) => recordSwEvent("tab_closed", tabId, { url: null }));
+chrome.tabs.onRemoved.addListener((tabId) => {
+  recordSwEvent("tab_closed", tabId, { url: null });
+  audit.onTabRemoved(tabId).catch(() => {});
+});
 // URL change in a tab (address bar, link, redirect, SPA history) → navigate.
 // This is what captures "the current state of the URL" as it changes.
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {

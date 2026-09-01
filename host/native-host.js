@@ -241,6 +241,26 @@ function routeFromExtension(msg) {
 // some setups, and this also lets us write to a stable location the coding
 // agent can open. Returns the absolute directory so the extension can notify
 // Claude Code with a real path.
+// Audits live beside recordings but in their own tree: they answer "what did
+// this agent session do", not "how is a task performed", and they are written
+// on a checkpoint rather than at the end, so a session can be reviewed while
+// its tabs are still open.
+function handleSaveAudit(msg) {
+  try {
+    const dir = path.join(
+      os.homedir(),
+      ".config",
+      "open-claude-in-chrome",
+      "audits",
+      String(msg.session_id || "unknown")
+    );
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "audit.json"), JSON.stringify(msg.payload ?? {}, null, 2));
+  } catch (e) {
+    process.stderr.write(`save_audit failed: ${String(e && e.message)}\n`);
+  }
+}
+
 function handleSaveRecording(msg) {
   try {
     const dir = path.join(
@@ -396,6 +416,10 @@ process.stdin.on("data", (chunk) => {
     // Handle recording saves locally (write to disk + reply); don't forward.
     if (msg && msg.type === "save_recording") {
       handleSaveRecording(msg);
+      continue;
+    }
+    if (msg && msg.type === "save_audit") {
+      handleSaveAudit(msg);
       continue;
     }
     if (msg && msg.type === "save_screenshot") {
