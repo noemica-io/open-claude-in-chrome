@@ -4,6 +4,7 @@
 // hidden. Reads the same IndexedDB the offscreen buffer writes.
 
 import { validateOpenAiKey } from "./transcribe.js";
+import { wireAuditTabs } from "./audits.js";
 
 const keyInput = document.getElementById("key");
 const keyStatus = document.getElementById("keyStatus");
@@ -581,3 +582,6 @@ function openUtteranceDetail(u, images) {
 }
 
 renderSessions();
+
+// Audits pane: its own module, wired here so the recorder UI stays untouched.
+wireAuditTabs();
