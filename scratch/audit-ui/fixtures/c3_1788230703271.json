@@ -1,0 +1,1430 @@
+{
+  "session": {
+    "sessionId": "c3_1788230703271",
+    "clientId": "3",
+    "startedAt": 1788230703271,
+    "lastActivityAt": 1788230724328,
+    "actions": [
+      {
+        "t": 1788230703272,
+        "tool": "tabs_context_mcp",
+        "action": null,
+        "tabId": null,
+        "streamId": null,
+        "detail": "createIfEmpty=true"
+      },
+      {
+        "t": 1788230706453,
+        "tool": "tabs_create_mcp",
+        "action": null,
+        "tabId": null,
+        "streamId": null,
+        "detail": "(no args)"
+      },
+      {
+        "t": 1788230708079,
+        "tool": "navigate",
+        "action": null,
+        "tabId": 1150465794,
+        "streamId": null,
+        "detail": "url=\"http://localhost:8842/\""
+      },
+      {
+        "t": 1788230709630,
+        "tool": "computer",
+        "action": "screenshot",
+        "tabId": 1150465794,
+        "streamId": "s1150465794_1788230709590",
+        "detail": "action=\"screenshot\""
+      },
+      {
+        "t": 1788230713668,
+        "tool": "computer",
+        "action": "scroll",
+        "tabId": 1150465794,
+        "streamId": "s1150465794_1788230709590",
+        "detail": "action=\"scroll\" coordinate=[400,300] scroll_direction=\"down\" scroll_amount=4"
+      },
+      {
+        "t": 1788230716558,
+        "tool": "find",
+        "action": null,
+        "tabId": 1150465794,
+        "streamId": "s1150465794_1788230709590",
+        "detail": "query=\"button\""
+      },
+      {
+        "t": 1788230718969,
+        "tool": "computer",
+        "action": "scroll_to",
+        "tabId": 1150465794,
+        "streamId": "s1150465794_1788230709590",
+        "detail": "action=\"scroll_to\" ref=\"ref_1\""
+      },
+      {
+        "t": 1788230720823,
+        "tool": "find",
+        "action": null,
+        "tabId": 1150465794,
+        "streamId": "s1150465794_1788230709590",
+        "detail": "query=\"button\""
+      },
+      {
+        "t": 1788230722670,
+        "tool": "computer",
+        "action": "left_click",
+        "tabId": 1150465794,
+        "streamId": "s1150465794_1788230709590",
+        "detail": "action=\"left_click\" ref=\"ref_1\""
+      },
+      {
+        "t": 1788230724328,
+        "tool": "computer",
+        "action": "screenshot",
+        "tabId": 1150465794,
+        "streamId": "s1150465794_1788230709590",
+        "detail": "action=\"screenshot\""
+      }
+    ]
+  },
+  "segments": [
+    {
+      "streamId": "s1150465794_1788230709590",
+      "tabId": 1150465794,
+      "tStart": 1788230709630,
+      "tEnd": 1788230724328,
+      "actions": [
+        {
+          "t": 1788230709630,
+          "tool": "computer",
+          "action": "screenshot",
+          "tabId": 1150465794,
+          "streamId": "s1150465794_1788230709590",
+          "detail": "action=\"screenshot\""
+        },
+        {
+          "t": 1788230713668,
+          "tool": "computer",
+          "action": "scroll",
+          "tabId": 1150465794,
+          "streamId": "s1150465794_1788230709590",
+          "detail": "action=\"scroll\" coordinate=[400,300] scroll_direction=\"down\" scroll_amount=4"
+        },
+        {
+          "t": 1788230716558,
+          "tool": "find",
+          "action": null,
+          "tabId": 1150465794,
+          "streamId": "s1150465794_1788230709590",
+          "detail": "query=\"button\""
+        },
+        {
+          "t": 1788230718969,
+          "tool": "computer",
+          "action": "scroll_to",
+          "tabId": 1150465794,
+          "streamId": "s1150465794_1788230709590",
+          "detail": "action=\"scroll_to\" ref=\"ref_1\""
+        },
+        {
+          "t": 1788230720823,
+          "tool": "find",
+          "action": null,
+          "tabId": 1150465794,
+          "streamId": "s1150465794_1788230709590",
+          "detail": "query=\"button\""
+        },
+        {
+          "t": 1788230722670,
+          "tool": "computer",
+          "action": "left_click",
+          "tabId": 1150465794,
+          "streamId": "s1150465794_1788230709590",
+          "detail": "action=\"left_click\" ref=\"ref_1\""
+        },
+        {
+          "t": 1788230724328,
+          "tool": "computer",
+          "action": "screenshot",
+          "tabId": 1150465794,
+          "streamId": "s1150465794_1788230709590",
+          "detail": "action=\"screenshot\""
+        }
+      ]
+    }
+  ],
+  "streams": {
+    "s1150465794_1788230709590": {
+      "streamId": "s1150465794_1788230709590",
+      "tabId": 1150465794,
+      "startedAt": 1788230709590,
+      "endedAt": null,
+      "url": "http://localhost:8842/",
+      "title": "OCIC humanization probe",
+      "seqCount": 4,
+      "bytes": 13374,
+      "events": [
+        {
+          "type": 4,
+          "data": {
+            "href": "http://localhost:8842/",
+            "width": 1134,
+            "height": 608
+          },
+          "timestamp": 1788230709611
+        },
+        {
+          "type": 2,
+          "data": {
+            "node": {
+              "type": 0,
+              "childNodes": [
+                {
+                  "type": 1,
+                  "name": "html",
+                  "publicId": "",
+                  "systemId": "",
+                  "id": 2
+                },
+                {
+                  "type": 2,
+                  "tagName": "html",
+                  "attributes": {},
+                  "childNodes": [
+                    {
+                      "type": 2,
+                      "tagName": "head",
+                      "attributes": {},
+                      "childNodes": [
+                        {
+                          "type": 2,
+                          "tagName": "meta",
+                          "attributes": {
+                            "charset": "utf-8"
+                          },
+                          "childNodes": [],
+                          "id": 5
+                        },
+                        {
+                          "type": 3,
+                          "textContent": "\n",
+                          "id": 6
+                        },
+                        {
+                          "type": 2,
+                          "tagName": "title",
+                          "attributes": {},
+                          "childNodes": [
+                            {
+                              "type": 3,
+                              "textContent": "OCIC humanization probe",
+                              "id": 8
+                            }
+                          ],
+                          "id": 7
+                        },
+                        {
+                          "type": 3,
+                          "textContent": "\n",
+                          "id": 9
+                        },
+                        {
+                          "type": 2,
+                          "tagName": "style",
+                          "attributes": {
+                            "_cssText": "body { font: 14px / 1.5 -apple-system, system-ui, sans-serif; margin: 0px; padding: 16px 20px; background: rgb(247, 247, 245); color: rgb(28, 30, 34); }h1 { font-size: 16px; margin: 0px 0px 4px; }.sub { color: rgb(91, 95, 102); font-size: 12px; margin: 0px 0px 14px; }.row { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }.card { background: rgb(255, 255, 255); border: 1px solid rgb(226, 226, 221); border-radius: 10px; padding: 14px; }#target { width: 150px; height: 46px; font-style: inherit; font-variant: inherit; font-stretch: inherit; font-size: inherit; line-height: inherit; font-family: inherit; font-optical-sizing: inherit; font-size-adjust: inherit; font-kerning: inherit; font-feature-settings: inherit; font-variation-settings: inherit; font-language-override: inherit; font-weight: 600; cursor: pointer; background: rgb(42, 95, 216); color: rgb(255, 255, 255); border-width: medium; border-style: none; border-color: currentcolor; border-image: none; border-radius: 8px; }#hoverbox { width: 150px; height: 46px; display: grid; place-items: center; border: 1px dashed rgb(154, 160, 168); border-radius: 8px; }#hoverbox.on { background: rgb(228, 244, 238); border-color: rgb(14, 138, 95); }input, textarea { font: inherit; padding: 8px 10px; border: 1px solid rgb(226, 226, 221); border-radius: 7px; width: 260px; }canvas { border: 1px solid rgb(226, 226, 221); border-radius: 8px; background: rgb(255, 255, 255); display: block; }pre { background: rgb(21, 23, 27); color: rgb(232, 234, 238); padding: 10px; border-radius: 8px; font-size: 11px; max-height: 230px; overflow: auto; margin: 8px 0px 0px; }.stat { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }.scrollbox { height: 90px; width: 260px; overflow-y: scroll; border: 1px solid rgb(226, 226, 221); border-radius: 7px; background: rgb(255, 255, 255); }.scrollbox div { height: 40px; padding: 6px 10px; border-bottom: 1px solid rgb(240, 240, 236); }"
+                          },
+                          "childNodes": [
+                            {
+                              "type": 3,
+                              "textContent": "",
+                              "id": 11
+                            }
+                          ],
+                          "id": 10
+                        },
+                        {
+                          "type": 3,
+                          "textContent": "\n\n",
+                          "id": 12
+                        }
+                      ],
+                      "id": 4
+                    },
+                    {
+                      "type": 2,
+                      "tagName": "body",
+                      "attributes": {},
+                      "childNodes": [
+                        {
+                          "type": 2,
+                          "tagName": "h1",
+                          "attributes": {},
+                          "childNodes": [
+                            {
+                              "type": 3,
+                              "textContent": "OCIC humanization probe",
+                              "id": 15
+                            }
+                          ],
+                          "id": 14
+                        },
+                        {
+                          "type": 3,
+                          "textContent": "\n",
+                          "id": 16
+                        },
+                        {
+                          "type": 2,
+                          "tagName": "p",
+                          "attributes": {
+                            "class": "sub"
+                          },
+                          "childNodes": [
+                            {
+                              "type": 3,
+                              "textContent": "Records every input event the page actually receives, so humanized and non-humanized runs can be compared on evidence rather than impression. ",
+                              "id": 18
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "code",
+                              "attributes": {},
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "window.__probe",
+                                  "id": 20
+                                }
+                              ],
+                              "id": 19
+                            },
+                            {
+                              "type": 3,
+                              "textContent": " holds the raw data; ",
+                              "id": 21
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "code",
+                              "attributes": {},
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "window.__probeStats()",
+                                  "id": 23
+                                }
+                              ],
+                              "id": 22
+                            },
+                            {
+                              "type": 3,
+                              "textContent": " summarizes it.",
+                              "id": 24
+                            }
+                          ],
+                          "id": 17
+                        },
+                        {
+                          "type": 3,
+                          "textContent": "\n\n",
+                          "id": 25
+                        },
+                        {
+                          "type": 2,
+                          "tagName": "div",
+                          "attributes": {
+                            "class": "row"
+                          },
+                          "childNodes": [
+                            {
+                              "type": 3,
+                              "textContent": "\n  ",
+                              "id": 27
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "div",
+                              "attributes": {
+                                "class": "card"
+                              },
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "\n    ",
+                                  "id": 29
+                                },
+                                {
+                                  "type": 2,
+                                  "tagName": "div",
+                                  "attributes": {
+                                    "class": "row",
+                                    "style": "gap:10px"
+                                  },
+                                  "childNodes": [
+                                    {
+                                      "type": 3,
+                                      "textContent": "\n      ",
+                                      "id": 31
+                                    },
+                                    {
+                                      "type": 2,
+                                      "tagName": "button",
+                                      "attributes": {
+                                        "id": "target"
+                                      },
+                                      "childNodes": [
+                                        {
+                                          "type": 3,
+                                          "textContent": "Click me",
+                                          "id": 33
+                                        }
+                                      ],
+                                      "id": 32
+                                    },
+                                    {
+                                      "type": 3,
+                                      "textContent": "\n      ",
+                                      "id": 34
+                                    },
+                                    {
+                                      "type": 2,
+                                      "tagName": "div",
+                                      "attributes": {
+                                        "id": "hoverbox"
+                                      },
+                                      "childNodes": [
+                                        {
+                                          "type": 3,
+                                          "textContent": "hover me",
+                                          "id": 36
+                                        }
+                                      ],
+                                      "id": 35
+                                    },
+                                    {
+                                      "type": 3,
+                                      "textContent": "\n    ",
+                                      "id": 37
+                                    }
+                                  ],
+                                  "id": 30
+                                },
+                                {
+                                  "type": 3,
+                                  "textContent": "\n    ",
+                                  "id": 38
+                                },
+                                {
+                                  "type": 2,
+                                  "tagName": "div",
+                                  "attributes": {
+                                    "style": "margin-top:10px"
+                                  },
+                                  "childNodes": [
+                                    {
+                                      "type": 3,
+                                      "textContent": "\n      ",
+                                      "id": 40
+                                    },
+                                    {
+                                      "type": 2,
+                                      "tagName": "input",
+                                      "attributes": {
+                                        "id": "text",
+                                        "placeholder": "type here",
+                                        "autocomplete": "off"
+                                      },
+                                      "childNodes": [],
+                                      "id": 41
+                                    },
+                                    {
+                                      "type": 3,
+                                      "textContent": "\n    ",
+                                      "id": 42
+                                    }
+                                  ],
+                                  "id": 39
+                                },
+                                {
+                                  "type": 3,
+                                  "textContent": "\n    ",
+                                  "id": 43
+                                },
+                                {
+                                  "type": 2,
+                                  "tagName": "div",
+                                  "attributes": {
+                                    "style": "margin-top:10px"
+                                  },
+                                  "childNodes": [
+                                    {
+                                      "type": 3,
+                                      "textContent": "\n      ",
+                                      "id": 45
+                                    },
+                                    {
+                                      "type": 2,
+                                      "tagName": "div",
+                                      "attributes": {
+                                        "class": "scrollbox",
+                                        "id": "scrollbox"
+                                      },
+                                      "childNodes": [
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 1",
+                                              "id": 48
+                                            }
+                                          ],
+                                          "id": 47
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 2",
+                                              "id": 50
+                                            }
+                                          ],
+                                          "id": 49
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 3",
+                                              "id": 52
+                                            }
+                                          ],
+                                          "id": 51
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 4",
+                                              "id": 54
+                                            }
+                                          ],
+                                          "id": 53
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 5",
+                                              "id": 56
+                                            }
+                                          ],
+                                          "id": 55
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 6",
+                                              "id": 58
+                                            }
+                                          ],
+                                          "id": 57
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 7",
+                                              "id": 60
+                                            }
+                                          ],
+                                          "id": 59
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 8",
+                                              "id": 62
+                                            }
+                                          ],
+                                          "id": 61
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 9",
+                                              "id": 64
+                                            }
+                                          ],
+                                          "id": 63
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 10",
+                                              "id": 66
+                                            }
+                                          ],
+                                          "id": 65
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 11",
+                                              "id": 68
+                                            }
+                                          ],
+                                          "id": 67
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 12",
+                                              "id": 70
+                                            }
+                                          ],
+                                          "id": 69
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 13",
+                                              "id": 72
+                                            }
+                                          ],
+                                          "id": 71
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 14",
+                                              "id": 74
+                                            }
+                                          ],
+                                          "id": 73
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 15",
+                                              "id": 76
+                                            }
+                                          ],
+                                          "id": 75
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 16",
+                                              "id": 78
+                                            }
+                                          ],
+                                          "id": 77
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 17",
+                                              "id": 80
+                                            }
+                                          ],
+                                          "id": 79
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 18",
+                                              "id": 82
+                                            }
+                                          ],
+                                          "id": 81
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 19",
+                                              "id": 84
+                                            }
+                                          ],
+                                          "id": 83
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 20",
+                                              "id": 86
+                                            }
+                                          ],
+                                          "id": 85
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 21",
+                                              "id": 88
+                                            }
+                                          ],
+                                          "id": 87
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 22",
+                                              "id": 90
+                                            }
+                                          ],
+                                          "id": 89
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 23",
+                                              "id": 92
+                                            }
+                                          ],
+                                          "id": 91
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 24",
+                                              "id": 94
+                                            }
+                                          ],
+                                          "id": 93
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 25",
+                                              "id": 96
+                                            }
+                                          ],
+                                          "id": 95
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 26",
+                                              "id": 98
+                                            }
+                                          ],
+                                          "id": 97
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 27",
+                                              "id": 100
+                                            }
+                                          ],
+                                          "id": 99
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 28",
+                                              "id": 102
+                                            }
+                                          ],
+                                          "id": 101
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 29",
+                                              "id": 104
+                                            }
+                                          ],
+                                          "id": 103
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 30",
+                                              "id": 106
+                                            }
+                                          ],
+                                          "id": 105
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 31",
+                                              "id": 108
+                                            }
+                                          ],
+                                          "id": 107
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 32",
+                                              "id": 110
+                                            }
+                                          ],
+                                          "id": 109
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 33",
+                                              "id": 112
+                                            }
+                                          ],
+                                          "id": 111
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 34",
+                                              "id": 114
+                                            }
+                                          ],
+                                          "id": 113
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 35",
+                                              "id": 116
+                                            }
+                                          ],
+                                          "id": 115
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 36",
+                                              "id": 118
+                                            }
+                                          ],
+                                          "id": 117
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 37",
+                                              "id": 120
+                                            }
+                                          ],
+                                          "id": 119
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 38",
+                                              "id": 122
+                                            }
+                                          ],
+                                          "id": 121
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 39",
+                                              "id": 124
+                                            }
+                                          ],
+                                          "id": 123
+                                        },
+                                        {
+                                          "type": 2,
+                                          "tagName": "div",
+                                          "attributes": {},
+                                          "childNodes": [
+                                            {
+                                              "type": 3,
+                                              "textContent": "row 40",
+                                              "id": 126
+                                            }
+                                          ],
+                                          "id": 125
+                                        }
+                                      ],
+                                      "id": 46
+                                    },
+                                    {
+                                      "type": 3,
+                                      "textContent": "\n    ",
+                                      "id": 127
+                                    }
+                                  ],
+                                  "id": 44
+                                },
+                                {
+                                  "type": 3,
+                                  "textContent": "\n  ",
+                                  "id": 128
+                                }
+                              ],
+                              "id": 28
+                            },
+                            {
+                              "type": 3,
+                              "textContent": "\n\n  ",
+                              "id": 129
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "div",
+                              "attributes": {
+                                "class": "card"
+                              },
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "\n    ",
+                                  "id": 131
+                                },
+                                {
+                                  "type": 2,
+                                  "tagName": "div",
+                                  "attributes": {
+                                    "class": "stat",
+                                    "id": "stats"
+                                  },
+                                  "childNodes": [
+                                    {
+                                      "type": 3,
+                                      "textContent": "moves 0 · clicks 0 · keys 0 · wheel 0",
+                                      "id": 133
+                                    }
+                                  ],
+                                  "id": 132
+                                },
+                                {
+                                  "type": 3,
+                                  "textContent": "\n    ",
+                                  "id": 134
+                                },
+                                {
+                                  "type": 2,
+                                  "tagName": "canvas",
+                                  "attributes": {
+                                    "id": "trail",
+                                    "width": "520",
+                                    "height": "300"
+                                  },
+                                  "childNodes": [],
+                                  "id": 135
+                                },
+                                {
+                                  "type": 3,
+                                  "textContent": "\n    ",
+                                  "id": 136
+                                },
+                                {
+                                  "type": 2,
+                                  "tagName": "div",
+                                  "attributes": {
+                                    "class": "sub",
+                                    "style": "margin:6px 0 0"
+                                  },
+                                  "childNodes": [
+                                    {
+                                      "type": 3,
+                                      "textContent": "cursor trail — green = first sample, red = latest",
+                                      "id": 138
+                                    }
+                                  ],
+                                  "id": 137
+                                },
+                                {
+                                  "type": 3,
+                                  "textContent": "\n  ",
+                                  "id": 139
+                                }
+                              ],
+                              "id": 130
+                            },
+                            {
+                              "type": 3,
+                              "textContent": "\n",
+                              "id": 140
+                            }
+                          ],
+                          "id": 26
+                        },
+                        {
+                          "type": 3,
+                          "textContent": "\n\n",
+                          "id": 141
+                        },
+                        {
+                          "type": 2,
+                          "tagName": "div",
+                          "attributes": {
+                            "class": "card",
+                            "style": "margin-top:14px"
+                          },
+                          "childNodes": [
+                            {
+                              "type": 3,
+                              "textContent": "\n  ",
+                              "id": 143
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "strong",
+                              "attributes": {
+                                "style": "font-size:13px"
+                              },
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "Live event log",
+                                  "id": 145
+                                }
+                              ],
+                              "id": 144
+                            },
+                            {
+                              "type": 3,
+                              "textContent": "\n  ",
+                              "id": 146
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "pre",
+                              "attributes": {
+                                "id": "log"
+                              },
+                              "childNodes": [],
+                              "id": 147
+                            },
+                            {
+                              "type": 3,
+                              "textContent": "\n",
+                              "id": 148
+                            }
+                          ],
+                          "id": 142
+                        },
+                        {
+                          "type": 3,
+                          "textContent": "\n\n",
+                          "id": 149
+                        },
+                        {
+                          "type": 5,
+                          "textContent": " Tall filler so the WINDOW itself can scroll a full viewport, which is what\n     \"scroll down one screen\" means. Without it the page fits and a page-level\n     scroll is a no-op. ",
+                          "id": 150
+                        },
+                        {
+                          "type": 3,
+                          "textContent": "\n",
+                          "id": 151
+                        },
+                        {
+                          "type": 2,
+                          "tagName": "div",
+                          "attributes": {
+                            "id": "filler",
+                            "style": "height:2400px;background:repeating-linear-gradient(180deg,#fff,#fff 78px,#f0f0ec 78px,#f0f0ec 80px);border:1px solid #e2e2dd;border-radius:10px;margin-top:14px"
+                          },
+                          "childNodes": [
+                            {
+                              "type": 3,
+                              "textContent": "\n  ",
+                              "id": 153
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "div",
+                              "attributes": {
+                                "style": "padding:10px 14px;color:#5b5f66;font-size:12px"
+                              },
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "scroll region — each band is 80px",
+                                  "id": 155
+                                }
+                              ],
+                              "id": 154
+                            },
+                            {
+                              "type": 3,
+                              "textContent": "\n",
+                              "id": 156
+                            }
+                          ],
+                          "id": 152
+                        },
+                        {
+                          "type": 3,
+                          "textContent": "\n\n",
+                          "id": 157
+                        },
+                        {
+                          "type": 2,
+                          "tagName": "script",
+                          "attributes": {},
+                          "childNodes": [
+                            {
+                              "type": 3,
+                              "textContent": "SCRIPT_PLACEHOLDER",
+                              "id": 159
+                            }
+                          ],
+                          "id": 158
+                        },
+                        {
+                          "type": 3,
+                          "textContent": "\n",
+                          "id": 160
+                        }
+                      ],
+                      "id": 13
+                    }
+                  ],
+                  "id": 3
+                }
+              ],
+              "id": 1
+            },
+            "initialOffset": {
+              "left": 0,
+              "top": 0
+            }
+          },
+          "timestamp": 1788230709628
+        },
+        {
+          "type": 3,
+          "data": {
+            "source": 4,
+            "width": 1512,
+            "height": 811
+          },
+          "timestamp": 1788230709634
+        },
+        {
+          "type": 3,
+          "data": {
+            "source": 0,
+            "texts": [],
+            "attributes": [],
+            "removes": [
+              {
+                "parentId": 132,
+                "id": 133
+              }
+            ],
+            "adds": [
+              {
+                "parentId": 147,
+                "nextId": null,
+                "node": {
+                  "type": 3,
+                  "textContent": "wheel dy=400",
+                  "id": 161
+                }
+              },
+              {
+                "parentId": 132,
+                "nextId": null,
+                "node": {
+                  "type": 3,
+                  "textContent": "moves 0 · clicks 0 · keys 0 · wheel 1",
+                  "id": 162
+                }
+              }
+            ]
+          },
+          "timestamp": 1788230713684
+        },
+        {
+          "type": 3,
+          "data": {
+            "source": 3,
+            "id": 1,
+            "x": 0,
+            "y": 400
+          },
+          "timestamp": 1788230713684
+        },
+        {
+          "type": 3,
+          "data": {
+            "source": 3,
+            "id": 1,
+            "x": 0,
+            "y": 0
+          },
+          "timestamp": 1788230718974
+        },
+        {
+          "type": 3,
+          "data": {
+            "source": 3,
+            "id": 1,
+            "x": 0,
+            "y": 115
+          },
+          "timestamp": 1788230719076
+        },
+        {
+          "type": 3,
+          "data": {
+            "source": 3,
+            "id": 1,
+            "x": 0,
+            "y": 0
+          },
+          "timestamp": 1788230722672
+        },
+        {
+          "type": 3,
+          "data": {
+            "source": 1,
+            "positions": [
+              {
+                "x": 110,
+                "y": 115,
+                "id": 32,
+                "timeOffset": 0
+              }
+            ]
+          },
+          "timestamp": 1788230722683
+        },
+        {
+          "type": 3,
+          "data": {
+            "source": 2,
+            "type": 1,
+            "id": 32,
+            "x": 110,
+            "y": 115
+          },
+          "timestamp": 1788230722736
+        },
+        {
+          "type": 3,
+          "data": {
+            "source": 2,
+            "type": 5,
+            "id": 32
+          },
+          "timestamp": 1788230722737
+        },
+        {
+          "type": 3,
+          "data": {
+            "source": 2,
+            "type": 0,
+            "id": 32,
+            "x": 110,
+            "y": 115
+          },
+          "timestamp": 1788230722789
+        },
+        {
+          "type": 3,
+          "data": {
+            "source": 2,
+            "type": 2,
+            "id": 32,
+            "x": 110,
+            "y": 115,
+            "pointerType": 0
+          },
+          "timestamp": 1788230722790
+        },
+        {
+          "type": 3,
+          "data": {
+            "source": 0,
+            "texts": [],
+            "attributes": [],
+            "removes": [
+              {
+                "parentId": 147,
+                "id": 161
+              },
+              {
+                "parentId": 132,
+                "id": 162
+              }
+            ],
+            "adds": [
+              {
+                "parentId": 147,
+                "nextId": null,
+                "node": {
+                  "type": 3,
+                  "textContent": "wheel dy=400\nclick #1 @(110,115) detail=1 trusted=true",
+                  "id": 163
+                }
+              },
+              {
+                "parentId": 132,
+                "nextId": null,
+                "node": {
+                  "type": 3,
+                  "textContent": "moves 1 · clicks 1 · keys 0 · wheel 1",
+                  "id": 164
+                }
+              }
+            ]
+          },
+          "timestamp": 1788230722791
+        }
+      ],
+      "truncated": false,
+      "lastEventAt": 1788230723636
+    }
+  }
+}

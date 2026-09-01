@@ -64,7 +64,7 @@
   .seg .cnt{color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
 
   /* ---- action markers: jump action-to-action ---- */
-  .marks{margin:10px 0 0;border-top:1px solid var(--line);padding-top:10px}
+  .marks{margin:2px 0 12px;border-top:1px solid var(--line);padding-top:10px}
   .marks h4{margin:0 0 7px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
   .mrow{display:flex;flex-wrap:wrap;gap:5px}
   .mark{border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit;
@@ -102,11 +102,11 @@
         <span class="badge" id="segBadge" hidden></span>
       </div>
       <div class="segs" id="segs"></div>
-      <div id="player"></div>
       <div class="marks" id="marks" hidden>
         <h4>Actions in this segment — click to jump</h4>
         <div class="mrow" id="mrow"></div>
       </div>
+      <div id="player"></div>
       <p class="err" id="err" hidden></p>
     </div>
   </div>
@@ -167,7 +167,14 @@ function renderSessions() {
       `<span class="ttl"></span>` +
       `<span class="meta">${segs.length} segment${segs.length === 1 ? "" : "s"} · ` +
       `${(s.actions || []).length} actions · ${fmtWhen(s.startedAt)}</span>`;
-    b.querySelector(".ttl").textContent = (firstStream && firstStream.title) || s.sessionId;
+    // "untouched" or "New Tab" identifies nothing; the host does.
+    let label = (firstStream && firstStream.title) || "";
+    const site = (() => {
+      try { return new URL(firstStream.url).host; } catch { return ""; }
+    })();
+    if (!label || label.length < 4) label = site || s.sessionId;
+    else if (site) label = `${label} — ${site}`;
+    b.querySelector(".ttl").textContent = label;
     b.onclick = () => selectSession(i);
     host.appendChild(b);
   });
@@ -226,13 +233,16 @@ function mountPlayer(stream, seg) {
     host.innerHTML = '<p class="empty">This segment has too few events to replay.</p>';
     return;
   }
+  // The UMD build exposes a module namespace, not the constructor itself.
+  const Player = (window.rrwebPlayer && window.rrwebPlayer.default) || window.rrwebPlayer;
+  if (typeof Player !== "function") { showErr("rrweb-player did not load"); return; }
   try {
-    cur.player = new rrwebPlayer({
+    cur.player = new Player({
       target: host,
       props: {
         events: stream.events,
         width: Math.min(host.clientWidth || 900, 1000),
-        height: 480,
+        height: 420,
         autoPlay: false,
         showController: true
       }

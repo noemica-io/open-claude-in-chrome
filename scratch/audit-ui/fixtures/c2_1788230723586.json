@@ -1,0 +1,1386 @@
+{
+  "session": {
+    "sessionId": "c2_1788230723586",
+    "clientId": "2",
+    "startedAt": 1788230723586,
+    "lastActivityAt": 1788230740181,
+    "actions": [
+      {
+        "t": 1788230723587,
+        "tool": "tabs_context_mcp",
+        "action": null,
+        "tabId": null,
+        "streamId": null,
+        "detail": "createIfEmpty=true"
+      },
+      {
+        "t": 1788230725563,
+        "tool": "tabs_create_mcp",
+        "action": null,
+        "tabId": null,
+        "streamId": null,
+        "detail": "(no args)"
+      },
+      {
+        "t": 1788230727476,
+        "tool": "navigate",
+        "action": null,
+        "tabId": 1150465795,
+        "streamId": null,
+        "detail": "url=\"http://localhost:8850/\""
+      },
+      {
+        "t": 1788230729551,
+        "tool": "computer",
+        "action": "screenshot",
+        "tabId": 1150465795,
+        "streamId": "s1150465795_1788230729511",
+        "detail": "action=\"screenshot\""
+      },
+      {
+        "t": 1788230733143,
+        "tool": "computer",
+        "action": "scroll",
+        "tabId": 1150465795,
+        "streamId": "s1150465795_1788230729511",
+        "detail": "action=\"scroll\" coordinate=[400,300] scroll_direction=\"down\" scroll_amount=4"
+      },
+      {
+        "t": 1788230736306,
+        "tool": "find",
+        "action": null,
+        "tabId": 1150465795,
+        "streamId": "s1150465795_1788230729511",
+        "detail": "query=\"button\""
+      },
+      {
+        "t": 1788230738405,
+        "tool": "computer",
+        "action": "left_click",
+        "tabId": 1150465795,
+        "streamId": "s1150465795_1788230729511",
+        "detail": "action=\"left_click\" ref=\"ref_3\""
+      },
+      {
+        "t": 1788230740181,
+        "tool": "computer",
+        "action": "screenshot",
+        "tabId": 1150465795,
+        "streamId": "s1150465795_1788230729511",
+        "detail": "action=\"screenshot\""
+      }
+    ]
+  },
+  "segments": [
+    {
+      "streamId": "s1150465795_1788230729511",
+      "tabId": 1150465795,
+      "tStart": 1788230729551,
+      "tEnd": 1788230740181,
+      "actions": [
+        {
+          "t": 1788230729551,
+          "tool": "computer",
+          "action": "screenshot",
+          "tabId": 1150465795,
+          "streamId": "s1150465795_1788230729511",
+          "detail": "action=\"screenshot\""
+        },
+        {
+          "t": 1788230733143,
+          "tool": "computer",
+          "action": "scroll",
+          "tabId": 1150465795,
+          "streamId": "s1150465795_1788230729511",
+          "detail": "action=\"scroll\" coordinate=[400,300] scroll_direction=\"down\" scroll_amount=4"
+        },
+        {
+          "t": 1788230736306,
+          "tool": "find",
+          "action": null,
+          "tabId": 1150465795,
+          "streamId": "s1150465795_1788230729511",
+          "detail": "query=\"button\""
+        },
+        {
+          "t": 1788230738405,
+          "tool": "computer",
+          "action": "left_click",
+          "tabId": 1150465795,
+          "streamId": "s1150465795_1788230729511",
+          "detail": "action=\"left_click\" ref=\"ref_3\""
+        },
+        {
+          "t": 1788230740181,
+          "tool": "computer",
+          "action": "screenshot",
+          "tabId": 1150465795,
+          "streamId": "s1150465795_1788230729511",
+          "detail": "action=\"screenshot\""
+        }
+      ]
+    }
+  ],
+  "streams": {
+    "s1150465795_1788230729511": {
+      "streamId": "s1150465795_1788230729511",
+      "tabId": 1150465795,
+      "startedAt": 1788230729511,
+      "endedAt": null,
+      "url": "http://localhost:8850/",
+      "title": "untouched",
+      "seqCount": 3,
+      "bytes": 13477,
+      "events": [
+        {
+          "type": 4,
+          "data": {
+            "href": "http://localhost:8850/",
+            "width": 1134,
+            "height": 608
+          },
+          "timestamp": 1788230729532
+        },
+        {
+          "type": 2,
+          "data": {
+            "node": {
+              "type": 0,
+              "childNodes": [
+                {
+                  "type": 1,
+                  "name": "html",
+                  "publicId": "",
+                  "systemId": "",
+                  "id": 2
+                },
+                {
+                  "type": 2,
+                  "tagName": "html",
+                  "attributes": {},
+                  "childNodes": [
+                    {
+                      "type": 2,
+                      "tagName": "head",
+                      "attributes": {},
+                      "childNodes": [
+                        {
+                          "type": 2,
+                          "tagName": "meta",
+                          "attributes": {
+                            "charset": "utf-8"
+                          },
+                          "childNodes": [],
+                          "id": 5
+                        },
+                        {
+                          "type": 3,
+                          "textContent": "\n",
+                          "id": 6
+                        },
+                        {
+                          "type": 2,
+                          "tagName": "title",
+                          "attributes": {},
+                          "childNodes": [
+                            {
+                              "type": 3,
+                              "textContent": "untouched",
+                              "id": 8
+                            }
+                          ],
+                          "id": 7
+                        },
+                        {
+                          "type": 3,
+                          "textContent": "\n",
+                          "id": 9
+                        },
+                        {
+                          "type": 2,
+                          "tagName": "style",
+                          "attributes": {
+                            "_cssText": "body { font: 13px / 1.5 -apple-system, system-ui, sans-serif; margin: 0px; padding: 12px 16px; background: rgb(247, 247, 245); color: rgb(28, 30, 34); }h1 { font-size: 15px; margin: 0px 0px 2px; }.sub { color: rgb(91, 95, 102); font-size: 12px; margin: 0px 0px 12px; }.strip { display: flex; gap: 10px; overflow-x: auto; border: 1px solid rgb(226, 226, 221); background: rgb(255, 255, 255); border-radius: 8px; padding: 10px; white-space: nowrap; }.strip button { flex: 0 0 auto; width: 170px; height: 44px; font-style: inherit; font-variant: inherit; font-stretch: inherit; font-size: inherit; line-height: inherit; font-family: inherit; font-optical-sizing: inherit; font-size-adjust: inherit; font-kerning: inherit; font-feature-settings: inherit; font-variation-settings: inherit; font-language-override: inherit; font-weight: 600; border: 1px solid rgb(201, 204, 209); border-radius: 7px; background: rgb(238, 242, 251); cursor: pointer; }.zone { position: relative; margin-top: 12px; height: 90px; border: 1px solid rgb(226, 226, 221); border-radius: 8px; background: rgb(255, 255, 255); }#buried { position: absolute; left: 20px; top: 22px; width: 150px; height: 44px; font-style: inherit; font-variant: inherit; font-stretch: inherit; font-size: inherit; line-height: inherit; font-family: inherit; font-optical-sizing: inherit; font-size-adjust: inherit; font-kerning: inherit; font-feature-settings: inherit; font-variation-settings: inherit; font-language-override: inherit; font-weight: 600; background: rgb(228, 244, 238); border: 1px solid rgb(14, 138, 95); border-radius: 7px; }#overlay { position: absolute; inset: 0px; background: rgba(0, 0, 0, 0); }#scrollbox { margin-top: 12px; height: 80px; width: 280px; overflow-y: scroll; border: 1px solid rgb(226, 226, 221); border-radius: 7px; background: rgb(255, 255, 255); }#scrollbox div { height: 36px; padding: 4px 10px; border-bottom: 1px solid rgb(240, 240, 236); }pre { background: rgb(21, 23, 27); color: rgb(232, 234, 238); padding: 9px; border-radius: 7px; font-size: 11px; max-height: 260px; overflow: auto; margin: 10px 0px 0px; }.k { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; color: rgb(91, 95, 102); }"
+                          },
+                          "childNodes": [
+                            {
+                              "type": 3,
+                              "textContent": "",
+                              "id": 11
+                            }
+                          ],
+                          "id": 10
+                        },
+                        {
+                          "type": 3,
+                          "textContent": "\n\n",
+                          "id": 12
+                        }
+                      ],
+                      "id": 4
+                    },
+                    {
+                      "type": 2,
+                      "tagName": "body",
+                      "attributes": {},
+                      "childNodes": [
+                        {
+                          "type": 2,
+                          "tagName": "h1",
+                          "attributes": {},
+                          "childNodes": [
+                            {
+                              "type": 3,
+                              "textContent": "click truth",
+                              "id": 15
+                            }
+                          ],
+                          "id": 14
+                        },
+                        {
+                          "type": 3,
+                          "textContent": "\n",
+                          "id": 16
+                        },
+                        {
+                          "type": 2,
+                          "tagName": "p",
+                          "attributes": {
+                            "class": "sub"
+                          },
+                          "childNodes": [
+                            {
+                              "type": 3,
+                              "textContent": "Records the ",
+                              "id": 18
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "em",
+                              "attributes": {},
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "true target",
+                                  "id": 20
+                                }
+                              ],
+                              "id": 19
+                            },
+                            {
+                              "type": 3,
+                              "textContent": " of every pointer event, so a hit and a miss can be told apart. ",
+                              "id": 21
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "span",
+                              "attributes": {
+                                "class": "k"
+                              },
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "window.__truth()",
+                                  "id": 23
+                                }
+                              ],
+                              "id": 22
+                            },
+                            {
+                              "type": 3,
+                              "textContent": " returns the log; ",
+                              "id": 24
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "span",
+                              "attributes": {
+                                "class": "k"
+                              },
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "window.__reset()",
+                                  "id": 26
+                                }
+                              ],
+                              "id": 25
+                            },
+                            {
+                              "type": 3,
+                              "textContent": " clears it.",
+                              "id": 27
+                            }
+                          ],
+                          "id": 17
+                        },
+                        {
+                          "type": 3,
+                          "textContent": "\n\n",
+                          "id": 28
+                        },
+                        {
+                          "type": 5,
+                          "textContent": " Case A/B: a strip far wider than the viewport, so far-right buttons are off-viewport ",
+                          "id": 29
+                        },
+                        {
+                          "type": 3,
+                          "textContent": "\n",
+                          "id": 30
+                        },
+                        {
+                          "type": 2,
+                          "tagName": "div",
+                          "attributes": {
+                            "class": "strip",
+                            "id": "strip"
+                          },
+                          "childNodes": [
+                            {
+                              "type": 2,
+                              "tagName": "button",
+                              "attributes": {
+                                "id": "chip1"
+                              },
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "Button 1",
+                                  "id": 33
+                                }
+                              ],
+                              "id": 32
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "button",
+                              "attributes": {
+                                "id": "chip2"
+                              },
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "Button 2",
+                                  "id": 35
+                                }
+                              ],
+                              "id": 34
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "button",
+                              "attributes": {
+                                "id": "chip3"
+                              },
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "Button 3",
+                                  "id": 37
+                                }
+                              ],
+                              "id": 36
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "button",
+                              "attributes": {
+                                "id": "chip4"
+                              },
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "Button 4",
+                                  "id": 39
+                                }
+                              ],
+                              "id": 38
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "button",
+                              "attributes": {
+                                "id": "chip5"
+                              },
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "Button 5",
+                                  "id": 41
+                                }
+                              ],
+                              "id": 40
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "button",
+                              "attributes": {
+                                "id": "chip6"
+                              },
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "Button 6",
+                                  "id": 43
+                                }
+                              ],
+                              "id": 42
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "button",
+                              "attributes": {
+                                "id": "chip7"
+                              },
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "Button 7",
+                                  "id": 45
+                                }
+                              ],
+                              "id": 44
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "button",
+                              "attributes": {
+                                "id": "chip8"
+                              },
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "Button 8",
+                                  "id": 47
+                                }
+                              ],
+                              "id": 46
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "button",
+                              "attributes": {
+                                "id": "chip9"
+                              },
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "Button 9",
+                                  "id": 49
+                                }
+                              ],
+                              "id": 48
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "button",
+                              "attributes": {
+                                "id": "chip10"
+                              },
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "Button 10",
+                                  "id": 51
+                                }
+                              ],
+                              "id": 50
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "button",
+                              "attributes": {
+                                "id": "chip11"
+                              },
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "Button 11",
+                                  "id": 53
+                                }
+                              ],
+                              "id": 52
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "button",
+                              "attributes": {
+                                "id": "chip12"
+                              },
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "Button 12",
+                                  "id": 55
+                                }
+                              ],
+                              "id": 54
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "button",
+                              "attributes": {
+                                "id": "chip13"
+                              },
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "Button 13",
+                                  "id": 57
+                                }
+                              ],
+                              "id": 56
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "button",
+                              "attributes": {
+                                "id": "chip14"
+                              },
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "Button 14",
+                                  "id": 59
+                                }
+                              ],
+                              "id": 58
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "button",
+                              "attributes": {
+                                "id": "chip15"
+                              },
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "Button 15",
+                                  "id": 61
+                                }
+                              ],
+                              "id": 60
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "button",
+                              "attributes": {
+                                "id": "chip16"
+                              },
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "Button 16",
+                                  "id": 63
+                                }
+                              ],
+                              "id": 62
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "button",
+                              "attributes": {
+                                "id": "chip17"
+                              },
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "Button 17",
+                                  "id": 65
+                                }
+                              ],
+                              "id": 64
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "button",
+                              "attributes": {
+                                "id": "chip18"
+                              },
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "Button 18",
+                                  "id": 67
+                                }
+                              ],
+                              "id": 66
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "button",
+                              "attributes": {
+                                "id": "chip19"
+                              },
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "Button 19",
+                                  "id": 69
+                                }
+                              ],
+                              "id": 68
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "button",
+                              "attributes": {
+                                "id": "chip20"
+                              },
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "Button 20",
+                                  "id": 71
+                                }
+                              ],
+                              "id": 70
+                            }
+                          ],
+                          "id": 31
+                        },
+                        {
+                          "type": 3,
+                          "textContent": "\n\n",
+                          "id": 72
+                        },
+                        {
+                          "type": 5,
+                          "textContent": " Case C: a target completely covered by a transparent overlay ",
+                          "id": 73
+                        },
+                        {
+                          "type": 3,
+                          "textContent": "\n",
+                          "id": 74
+                        },
+                        {
+                          "type": 2,
+                          "tagName": "div",
+                          "attributes": {
+                            "class": "zone"
+                          },
+                          "childNodes": [
+                            {
+                              "type": 3,
+                              "textContent": "\n  ",
+                              "id": 76
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "button",
+                              "attributes": {
+                                "id": "buried"
+                              },
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "buried button",
+                                  "id": 78
+                                }
+                              ],
+                              "id": 77
+                            },
+                            {
+                              "type": 3,
+                              "textContent": "\n  ",
+                              "id": 79
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "div",
+                              "attributes": {
+                                "id": "overlay"
+                              },
+                              "childNodes": [],
+                              "id": 80
+                            },
+                            {
+                              "type": 3,
+                              "textContent": "\n",
+                              "id": 81
+                            }
+                          ],
+                          "id": 75
+                        },
+                        {
+                          "type": 3,
+                          "textContent": "\n\n",
+                          "id": 82
+                        },
+                        {
+                          "type": 5,
+                          "textContent": " Case D: a nested scroller, to see which element a wheel actually reaches ",
+                          "id": 83
+                        },
+                        {
+                          "type": 3,
+                          "textContent": "\n",
+                          "id": 84
+                        },
+                        {
+                          "type": 2,
+                          "tagName": "div",
+                          "attributes": {
+                            "id": "scrollbox"
+                          },
+                          "childNodes": [
+                            {
+                              "type": 2,
+                              "tagName": "div",
+                              "attributes": {},
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "row 1",
+                                  "id": 87
+                                }
+                              ],
+                              "id": 86
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "div",
+                              "attributes": {},
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "row 2",
+                                  "id": 89
+                                }
+                              ],
+                              "id": 88
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "div",
+                              "attributes": {},
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "row 3",
+                                  "id": 91
+                                }
+                              ],
+                              "id": 90
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "div",
+                              "attributes": {},
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "row 4",
+                                  "id": 93
+                                }
+                              ],
+                              "id": 92
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "div",
+                              "attributes": {},
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "row 5",
+                                  "id": 95
+                                }
+                              ],
+                              "id": 94
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "div",
+                              "attributes": {},
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "row 6",
+                                  "id": 97
+                                }
+                              ],
+                              "id": 96
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "div",
+                              "attributes": {},
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "row 7",
+                                  "id": 99
+                                }
+                              ],
+                              "id": 98
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "div",
+                              "attributes": {},
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "row 8",
+                                  "id": 101
+                                }
+                              ],
+                              "id": 100
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "div",
+                              "attributes": {},
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "row 9",
+                                  "id": 103
+                                }
+                              ],
+                              "id": 102
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "div",
+                              "attributes": {},
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "row 10",
+                                  "id": 105
+                                }
+                              ],
+                              "id": 104
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "div",
+                              "attributes": {},
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "row 11",
+                                  "id": 107
+                                }
+                              ],
+                              "id": 106
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "div",
+                              "attributes": {},
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "row 12",
+                                  "id": 109
+                                }
+                              ],
+                              "id": 108
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "div",
+                              "attributes": {},
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "row 13",
+                                  "id": 111
+                                }
+                              ],
+                              "id": 110
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "div",
+                              "attributes": {},
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "row 14",
+                                  "id": 113
+                                }
+                              ],
+                              "id": 112
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "div",
+                              "attributes": {},
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "row 15",
+                                  "id": 115
+                                }
+                              ],
+                              "id": 114
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "div",
+                              "attributes": {},
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "row 16",
+                                  "id": 117
+                                }
+                              ],
+                              "id": 116
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "div",
+                              "attributes": {},
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "row 17",
+                                  "id": 119
+                                }
+                              ],
+                              "id": 118
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "div",
+                              "attributes": {},
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "row 18",
+                                  "id": 121
+                                }
+                              ],
+                              "id": 120
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "div",
+                              "attributes": {},
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "row 19",
+                                  "id": 123
+                                }
+                              ],
+                              "id": 122
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "div",
+                              "attributes": {},
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "row 20",
+                                  "id": 125
+                                }
+                              ],
+                              "id": 124
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "div",
+                              "attributes": {},
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "row 21",
+                                  "id": 127
+                                }
+                              ],
+                              "id": 126
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "div",
+                              "attributes": {},
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "row 22",
+                                  "id": 129
+                                }
+                              ],
+                              "id": 128
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "div",
+                              "attributes": {},
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "row 23",
+                                  "id": 131
+                                }
+                              ],
+                              "id": 130
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "div",
+                              "attributes": {},
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "row 24",
+                                  "id": 133
+                                }
+                              ],
+                              "id": 132
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "div",
+                              "attributes": {},
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "row 25",
+                                  "id": 135
+                                }
+                              ],
+                              "id": 134
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "div",
+                              "attributes": {},
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "row 26",
+                                  "id": 137
+                                }
+                              ],
+                              "id": 136
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "div",
+                              "attributes": {},
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "row 27",
+                                  "id": 139
+                                }
+                              ],
+                              "id": 138
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "div",
+                              "attributes": {},
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "row 28",
+                                  "id": 141
+                                }
+                              ],
+                              "id": 140
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "div",
+                              "attributes": {},
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "row 29",
+                                  "id": 143
+                                }
+                              ],
+                              "id": 142
+                            },
+                            {
+                              "type": 2,
+                              "tagName": "div",
+                              "attributes": {},
+                              "childNodes": [
+                                {
+                                  "type": 3,
+                                  "textContent": "row 30",
+                                  "id": 145
+                                }
+                              ],
+                              "id": 144
+                            }
+                          ],
+                          "id": 85
+                        },
+                        {
+                          "type": 3,
+                          "textContent": "\n\n",
+                          "id": 146
+                        },
+                        {
+                          "type": 2,
+                          "tagName": "pre",
+                          "attributes": {
+                            "id": "log"
+                          },
+                          "childNodes": [],
+                          "id": 147
+                        },
+                        {
+                          "type": 3,
+                          "textContent": "\n\n",
+                          "id": 148
+                        },
+                        {
+                          "type": 2,
+                          "tagName": "script",
+                          "attributes": {},
+                          "childNodes": [
+                            {
+                              "type": 3,
+                              "textContent": "SCRIPT_PLACEHOLDER",
+                              "id": 150
+                            }
+                          ],
+                          "id": 149
+                        },
+                        {
+                          "type": 3,
+                          "textContent": "\n",
+                          "id": 151
+                        }
+                      ],
+                      "id": 13
+                    }
+                  ],
+                  "id": 3
+                }
+              ],
+              "id": 1
+            },
+            "initialOffset": {
+              "left": 0,
+              "top": 0
+            }
+          },
+          "timestamp": 1788230729548
+        },
+        {
+          "type": 3,
+          "data": {
+            "source": 4,
+            "width": 1512,
+            "height": 811
+          },
+          "timestamp": 1788230729555
+        },
+        {
+          "type": 3,
+          "data": {
+            "source": 0,
+            "texts": [],
+            "attributes": [],
+            "removes": [],
+            "adds": [
+              {
+                "parentId": 147,
+                "nextId": null,
+                "node": {
+                  "type": 3,
+                  "textContent": "wheel     @(400,300) dy=400 -> <body>\n",
+                  "id": 152
+                }
+              }
+            ]
+          },
+          "timestamp": 1788230733163
+        },
+        {
+          "type": 3,
+          "data": {
+            "source": 1,
+            "positions": [
+              {
+                "x": 112,
+                "y": 100,
+                "id": 32,
+                "timeOffset": 0
+              }
+            ]
+          },
+          "timestamp": 1788230738409
+        },
+        {
+          "type": 3,
+          "data": {
+            "source": 2,
+            "type": 1,
+            "id": 32,
+            "x": 112,
+            "y": 100
+          },
+          "timestamp": 1788230738462
+        },
+        {
+          "type": 3,
+          "data": {
+            "source": 0,
+            "texts": [],
+            "attributes": [],
+            "removes": [
+              {
+                "parentId": 147,
+                "id": 152
+              }
+            ],
+            "adds": [
+              {
+                "parentId": 147,
+                "nextId": null,
+                "node": {
+                  "type": 3,
+                  "textContent": "wheel     @(400,300) dy=400 -> <body>\nmousedown @(112,100) -> <button#chip1>\n",
+                  "id": 153
+                }
+              }
+            ]
+          },
+          "timestamp": 1788230738463
+        },
+        {
+          "type": 3,
+          "data": {
+            "source": 2,
+            "type": 5,
+            "id": 32
+          },
+          "timestamp": 1788230738464
+        },
+        {
+          "type": 3,
+          "data": {
+            "source": 2,
+            "type": 0,
+            "id": 32,
+            "x": 112,
+            "y": 100
+          },
+          "timestamp": 1788230738517
+        },
+        {
+          "type": 3,
+          "data": {
+            "source": 0,
+            "texts": [],
+            "attributes": [],
+            "removes": [
+              {
+                "parentId": 147,
+                "id": 153
+              }
+            ],
+            "adds": [
+              {
+                "parentId": 147,
+                "nextId": null,
+                "node": {
+                  "type": 3,
+                  "textContent": "wheel     @(400,300) dy=400 -> <body>\nmousedown @(112,100) -> <button#chip1>\nmouseup   @(112,100) -> <button#chip1>\n",
+                  "id": 154
+                }
+              }
+            ]
+          },
+          "timestamp": 1788230738518
+        },
+        {
+          "type": 3,
+          "data": {
+            "source": 0,
+            "texts": [],
+            "attributes": [],
+            "removes": [
+              {
+                "parentId": 147,
+                "id": 154
+              }
+            ],
+            "adds": [
+              {
+                "parentId": 147,
+                "nextId": null,
+                "node": {
+                  "type": 3,
+                  "textContent": "wheel     @(400,300) dy=400 -> <body>\nmousedown @(112,100) -> <button#chip1>\nmouseup   @(112,100) -> <button#chip1>\nclick     @(112,100) -> <button#chip1>\n",
+                  "id": 155
+                }
+              }
+            ]
+          },
+          "timestamp": 1788230738518
+        },
+        {
+          "type": 3,
+          "data": {
+            "source": 2,
+            "type": 2,
+            "id": 32,
+            "x": 112,
+            "y": 100,
+            "pointerType": 0
+          },
+          "timestamp": 1788230738518
+        },
+        {
+          "type": 3,
+          "data": {
+            "source": 0,
+            "texts": [],
+            "attributes": [],
+            "removes": [
+              {
+                "parentId": 7,
+                "id": 8
+              },
+              {
+                "parentId": 147,
+                "id": 155
+              }
+            ],
+            "adds": [
+              {
+                "parentId": 7,
+                "nextId": null,
+                "node": {
+                  "type": 3,
+                  "textContent": "HIT:chip1",
+                  "id": 156
+                }
+              },
+              {
+                "parentId": 147,
+                "nextId": null,
+                "node": {
+                  "type": 3,
+                  "textContent": "wheel     @(400,300) dy=400 -> <body>\nmousedown @(112,100) -> <button#chip1>\nmouseup   @(112,100) -> <button#chip1>\nclick     @(112,100) -> <button#chip1>\n   handler fired: chip1\n",
+                  "id": 157
+                }
+              }
+            ]
+          },
+          "timestamp": 1788230738519
+        }
+      ],
+      "truncated": false,
+      "lastEventAt": 1788230738553
+    }
+  }
+}
