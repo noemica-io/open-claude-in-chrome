@@ -118,23 +118,27 @@
   .badge.trunc{color:var(--rec);border-color:var(--rec)}
   /* one action timeline, grouped by tab: "segment" is our word, not the
      reader's — they know tabs and actions, so the grouping shows which actions
-     belong to which tab without ever naming the concept */
-  .tl{display:flex;gap:0;overflow-x:auto;padding:2px 0 10px;align-items:stretch}
-  .tlgroup{flex:0 0 auto;display:flex;flex-direction:column;gap:6px;padding:8px 12px;border-radius:9px;
-    border:1px solid transparent}
-  .tlgroup + .tlgroup{margin-left:6px;border-left:1px dashed var(--line);padding-left:16px}
-  .tlgroup[data-active="true"]{background:var(--bg);border-color:var(--line)}
-  .tlhead{display:flex;gap:7px;align-items:baseline;white-space:nowrap}
-  .tlhead .site{font-weight:600;font-size:12px}
+     belong to which tab without ever naming the concept.
+     Vertical, in its own scroll box: a horizontal strip pushed actions out of
+     sight and made the group borders hard to see. */
+  .tl{display:flex;flex-direction:column;gap:10px;max-height:320px;overflow-y:auto;
+    padding:12px;border:1px solid var(--line);border-radius:9px;background:var(--bg)}
+  .tlgroup{border:1px solid var(--line);border-radius:8px;background:var(--panel);
+    padding:10px 12px;display:flex;flex-direction:column;gap:7px}
+  .tlgroup[data-active="true"]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+  .tlhead{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+  .tlhead .site{font-weight:600;font-size:12.5px}
   .tlhead .tabid{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--muted)}
   .tlgroup[data-active="true"] .tlhead .site{color:var(--accent)}
-  .tlacts{display:flex;gap:5px}
-  .act{border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink);font:inherit;
-    font-size:11.5px;padding:5px 9px;cursor:pointer;display:flex;gap:7px;align-items:baseline;white-space:nowrap}
+  .tlacts{display:flex;flex-direction:column;gap:4px}
+  .act{width:100%;text-align:left;border:1px solid var(--line);border-radius:6px;background:var(--bg);
+    color:var(--ink);font:inherit;font-size:12px;padding:6px 10px;cursor:pointer;
+    display:flex;gap:10px;align-items:baseline}
   .act:hover{border-color:var(--accent)}
   .act[aria-current="true"]{border-color:var(--accent);background:var(--accent);color:#fff}
   .act[aria-current="true"] .t{color:#fff;opacity:.85}
-  .act .t{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .act .t{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--muted);
+    font-variant-numeric:tabular-nums;flex:none;min-width:30px}
   .act .tool{font-weight:600}
   .transport{display:flex;align-items:center;gap:10px;margin:0 0 10px;padding:9px 11px;
     border:1px solid var(--line);border-radius:8px;background:var(--bg)}

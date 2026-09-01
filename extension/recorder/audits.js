@@ -201,7 +201,7 @@ function highlight(spanIndex) {
   all.forEach((b, j) => { if (Number(b.dataset.g) <= T.t + 250) active = j; });
   all.forEach((b, j) => b.setAttribute("aria-current", String(j === active)));
   if (active >= 0 && all[active]) {
-    all[active].scrollIntoView({ block: "nearest", inline: "nearest" });
+    all[active].scrollIntoView({ block: "nearest" });
   }
 }
 
@@ -233,9 +233,13 @@ function setPlaying(on) {
     // so playback stays smooth instead of stuttering every tick.
     if (before !== after) renderAt(next, { play: true });
     else {
+      // Refresh the highlight on EVERY tick, not just at a tab boundary. This
+      // branch used to update the clock alone, so the active action only moved
+      // when the tab changed and stood still through all the actions between.
       T.t = next;
       $("scrub").value = String(Math.round(T.t));
       $("tNow").textContent = fmtClock(T.t);
+      highlight(after);
     }
   }, 100);
 }
