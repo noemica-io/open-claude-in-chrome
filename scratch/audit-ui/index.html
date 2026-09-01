@@ -31,18 +31,14 @@
   .tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
   .tabs button:hover{color:var(--ink)}
 
-  .cols{display:grid;grid-template-columns:264px minmax(0,1fr);gap:18px;align-items:start}
-  @media (max-width:900px){ .cols{grid-template-columns:1fr} }
-
-  /* ---- session list ---- */
-  .slist{display:flex;flex-direction:column;gap:7px}
-  .sitem{text-align:left;width:100%;background:var(--panel);border:1px solid var(--line);border-radius:9px;
-    padding:10px 12px;cursor:pointer;color:var(--ink);font:inherit;display:flex;flex-direction:column;gap:3px}
-  .sitem:hover{border-color:var(--accent)}
-  .sitem[aria-current="true"]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
-  .sitem .id{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:var(--accent)}
-  .sitem .ttl{font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .sitem .meta{color:var(--muted);font-size:11.5px;font-variant-numeric:tabular-nums}
+  /* Two blocks on top — steps at the left, the replay at the right — and the
+     audit list beneath them, where full width is worth having. */
+  .atop{display:grid;grid-template-columns:300px minmax(0,1fr);gap:18px;align-items:start}
+  @media (max-width:900px){ .atop{grid-template-columns:1fr} }
+  .aright{display:flex;flex-direction:column;gap:10px;min-width:0}
+  .asec{font-size:14px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);
+    margin:26px 0 10px;font-weight:600}
+  .slist{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px}
 
   /* ---- player panel ---- */
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
@@ -53,17 +49,14 @@
   .badge.live{color:var(--ok);border-color:var(--ok)}
   .badge.trunc{color:var(--rec);border-color:var(--rec)}
 
-  /* one action timeline, grouped by tab: "segment" is our word, not the
-     reader's — they know tabs and actions, so the grouping shows which actions
-     belong to which tab without ever naming the concept.
-     Vertical, in its own scroll box: a horizontal strip pushed actions out of
-     sight and made the group borders hard to see. */
-  .tl{display:flex;flex-direction:column;gap:10px;max-height:320px;overflow-y:auto;
-    padding:12px;border:1px solid var(--line);border-radius:9px;background:var(--bg)}
-  .tlgroup{border:1px solid var(--line);border-radius:8px;background:var(--panel);
-    padding:10px 12px;display:flex;flex-direction:column;gap:7px}
-  .tlgroup[data-active="true"]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
-  .tlhead{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+  /* One box, not three. The steps are the only thing worth a border here —
+     the site line is a label, so it is written out rather than boxed, and the
+     group is a plain run of rows under it. */
+  .tl{display:flex;flex-direction:column;gap:6px;max-height:520px;overflow-y:auto;
+    padding:12px;border:1px solid var(--line);border-radius:9px;background:var(--panel)}
+  .tlgroup{display:flex;flex-direction:column;gap:4px}
+  .tlgroup + .tlgroup{margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+  .tlhead{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;padding:0 2px 2px}
   .tlhead .site{font-weight:600;font-size:12.5px}
   .tlhead .tabid{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--muted)}
   .tlgroup[data-active="true"] .tlhead .site{color:var(--accent)}
@@ -77,6 +70,7 @@
   .act .t{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--muted);
     font-variant-numeric:tabular-nums;flex:none;min-width:30px}
   .act .tool{font-weight:600}
+
   /* ---- session transport: ONE scrubber across every tab ---- */
   .transport{display:flex;align-items:center;gap:10px;margin:0 0 10px;padding:9px 11px;
     border:1px solid var(--line);border-radius:8px;background:var(--bg)}
@@ -103,28 +97,30 @@
     <button role="tab" aria-selected="false" id="tab-recordings">Recordings</button>
   </div>
 
-  <div class="cols" id="pane-audits">
-    <div>
-      <div class="slist" id="slist"></div>
-      <p class="hintbar" id="loadnote"></p>
-    </div>
-    <div class="panel">
-      <div class="phead">
-        <strong id="segTitle">No session</strong>
-        <span class="url" id="segUrl"></span>
-        <span class="badge" id="segBadge" hidden></span>
-      </div>
+  <div id="pane-audits">
+    <div class="atop">
       <div class="tl" id="timeline"></div>
-      <div class="transport" id="transport" hidden>
-        <button id="playBtn" class="play" type="button" aria-label="Play">▶</button>
-        <span class="tnow" id="tNow">0:00</span>
-        <input id="scrub" class="scrub" type="range" min="0" max="1000" value="0" step="1" aria-label="Session timeline">
-        <span class="tnow" id="tTotal">0:00</span>
-        <span class="nowtab" id="nowTab"></span>
+      <div class="aright">
+        <div class="phead">
+          <strong id="segTitle">No session</strong>
+          <span class="url" id="segUrl"></span>
+          <span class="badge" id="segBadge" hidden></span>
+        </div>
+        <div id="player"></div>
+        <div class="transport" id="transport" hidden>
+          <button id="playBtn" class="play" type="button" aria-label="Play">&#9654;</button>
+          <span class="tnow" id="tNow">0:00</span>
+          <input id="scrub" class="scrub" type="range" min="0" max="1000" value="0" step="1" aria-label="Session timeline">
+          <span class="tnow" id="tTotal">0:00</span>
+          <span class="nowtab" id="nowTab"></span>
+        </div>
+        <p class="err" id="err" hidden></p>
       </div>
-      <div id="player"></div>
-      <p class="err" id="err" hidden></p>
     </div>
+
+    <h2 class="asec">Audits</h2>
+    <div class="slist" id="slist"></div>
+    <p class="hintbar" id="loadnote"></p>
   </div>
 
   <div id="pane-recordings" hidden>
