@@ -19,7 +19,8 @@
   <a href="#imitation-learning-recording">Imitation learning</a> ·
   <a href="#architecture">Architecture</a> ·
   <a href="https://youtu.be/n4-2fjOsGhw">Demo</a> ·
-  <a href="https://www.noemica.io/blog/reverse-engineered-claude-in-chrome">How I built it</a>
+  <a href="https://www.noemica.io/blog/reverse-engineered-claude-in-chrome">How I built it</a> ·
+  <a href="https://discord.gg/F4HBKAEbNg">Discord</a>
 </p>
 
 ---
@@ -610,6 +611,11 @@ If a session disconnects, kill stale servers and reconnect:
 pkill -f "node.*mcp-server"
 # then /mcp in each Claude Code session
 ```
+
+## Community
+
+Questions, ideas, or something broken? **[Join the Discord](https://discord.gg/F4HBKAEbNg)** — good place to ask
+before filing an issue, and where feature discussion happens.
 
 ## Troubleshooting
 
