@@ -21,7 +21,7 @@ function fmtClock(ms) {
 }
 function fmtWhen(t) {
   return new Date(t).toLocaleString([], {
-    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"
+    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit"
   });
 }
 
@@ -48,10 +48,11 @@ export async function refreshAudits() {
     b.className = "sitem";
     b.setAttribute("aria-current", String(i === 0));
     b.innerHTML =
-      `<span class="id">Claude session ${s.clientId}</span>` +
+      `<span class="top"><span class="id">session ${s.clientId}</span>` +
+      `<span class="when"></span></span>` +
       `<span class="ttl"></span>` +
-      `<span class="meta">${s.actionCount} actions · ${s.tabs} tab${s.tabs === 1 ? "" : "s"} · ` +
-      `${fmtWhen(s.startedAt)}</span>`;
+      `<span class="meta">${s.actionCount} actions · ${s.tabs} tab${s.tabs === 1 ? "" : "s"}</span>`;
+    b.querySelector(".when").textContent = fmtWhen(s.startedAt);
     // The journey IS the identity. "client 1" means nothing alone, and every
     // capture of one page shares a title, so the list read "untouched" four
     // times over. The sequence of sites is what a reviewer recognises.
@@ -91,7 +92,7 @@ async function selectSession(sessionId, index) {
 const LEAD_IN_MS = 1000;
 const LEAD_OUT_MS = 3000;
 
-let T = { spans: [], total: 0, t: 0, playing: false, timer: null, mounted: -1 };
+let T = { spans: [], total: 0, t: 0, playing: false, timer: null, mounted: -1, pinned: null };
 
 function buildTimeline() {
   const { segments, streams } = cur.payload;
@@ -184,7 +185,14 @@ function renderTimeline() {
       b.title = a.detail || "";
       // Land a beat before the action, so it is seen in context rather than as
       // a jump-cut to its aftermath.
-      b.onclick = () => { setPlaying(false); renderAt(Math.max(sp.g0, gt - 1200)); };
+      b.onclick = () => {
+        setPlaying(false);
+        // Pin the clicked action: the seek lands a beat BEFORE it so the moment
+        // is seen in context, and without this the highlight recomputed from
+        // that earlier time and lit the previous action instead.
+        T.pinned = gt;
+        renderAt(Math.max(sp.g0, gt - 1200));
+      };
       acts.appendChild(b);
     });
     g.appendChild(head);
@@ -199,6 +207,15 @@ function highlight(spanIndex) {
   const all = [...$("timeline").querySelectorAll(".act")];
   let active = -1;
   all.forEach((b, j) => { if (Number(b.dataset.g) <= T.t + 250) active = j; });
+  // A pinned action wins until the clock actually reaches it, then releases.
+  if (T.pinned != null) {
+    if (T.t + 250 < T.pinned) {
+      const idx = all.findIndex((b) => Number(b.dataset.g) === T.pinned);
+      if (idx >= 0) active = idx;
+    } else {
+      T.pinned = null;
+    }
+  }
   all.forEach((b, j) => b.setAttribute("aria-current", String(j === active)));
   if (active >= 0 && all[active]) {
     all[active].scrollIntoView({ block: "nearest" });
@@ -343,5 +360,5 @@ export function wireAuditTabs() {
   const play = $("playBtn");
   if (play) play.onclick = () => setPlaying(!T.playing);
   const scrub = $("scrub");
-  if (scrub) scrub.oninput = (e) => { setPlaying(false); renderAt(Number(e.target.value)); };
+  if (scrub) scrub.oninput = (e) => { setPlaying(false); T.pinned = null; renderAt(Number(e.target.value)); };
 }

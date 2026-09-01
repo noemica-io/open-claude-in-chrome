@@ -38,7 +38,22 @@
   .aright{display:flex;flex-direction:column;gap:10px;min-width:0}
   .asec{font-size:14px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);
     margin:26px 0 10px;font-weight:600}
-  .slist{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px}
+  /* Audit cards. These lost their rules in an earlier refactor and were
+     rendering as bare buttons. Laid out wide now, so the journey wraps instead
+     of clipping and the identifying facts sit on one line. */
+  .slist{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:10px}
+  .sitem{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;
+    cursor:pointer;color:var(--ink);font:inherit;text-align:left;display:flex;flex-direction:column;gap:7px}
+  .sitem:hover{border-color:var(--accent)}
+  .sitem[aria-current="true"]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+  .sitem .top{display:flex;align-items:center;gap:8px}
+  .sitem .id{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--muted);
+    border:1px solid var(--line);border-radius:20px;padding:2px 8px;white-space:nowrap}
+  .sitem[aria-current="true"] .id{color:var(--accent);border-color:var(--accent)}
+  .sitem .when{margin-left:auto;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;
+    white-space:nowrap}
+  .sitem .ttl{font-weight:600;font-size:13px;line-height:1.4;overflow-wrap:anywhere}
+  .sitem .meta{color:var(--muted);font-size:11.5px;font-variant-numeric:tabular-nums}
 
   /* ---- player panel ---- */
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
@@ -162,7 +177,9 @@ function fmtClock(ms) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 function fmtWhen(t) {
-  return new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return new Date(t).toLocaleString([], {
+    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit"
+  });
 }
 
 function siteOf(url) {
@@ -195,10 +212,12 @@ function renderSessions() {
     b.className = "sitem";
     b.setAttribute("aria-current", String(i === 0));
     b.innerHTML =
-      `<span class="id">Claude session ${s.clientId}</span>` +
+      `<span class="top"><span class="id">session ${s.clientId}</span>` +
+      `<span class="when"></span></span>` +
       `<span class="ttl"></span>` +
       `<span class="meta">${(s.actions || []).length} actions · ` +
-      `${tabs} tab${tabs === 1 ? "" : "s"} · ${fmtWhen(s.startedAt)}</span>`;
+      `${tabs} tab${tabs === 1 ? "" : "s"}</span>`;
+    b.querySelector(".when").textContent = fmtWhen(s.startedAt);
     b.querySelector(".ttl").textContent = hops.length ? hops.join(" → ") : "(nothing recorded)";
     b.title = s.sessionId;
     b.onclick = () => selectSession(i);
@@ -227,7 +246,7 @@ function selectSession(i) {
 const LEAD_IN_MS = 1000;   // a beat before the first action, for context
 const LEAD_OUT_MS = 3000;  // and the aftermath of the last one, so it is actually seen
 
-let T = { spans: [], total: 0, t: 0, playing: false, timer: null, mounted: -1 };
+let T = { spans: [], total: 0, t: 0, playing: false, timer: null, mounted: -1, pinned: null };
 
 function buildTimeline() {
   const { segments, streams } = cur.session;
@@ -324,7 +343,14 @@ function renderTimeline() {
       b.title = a.detail || "";
       // Land a beat before the action, so it is seen in context rather than as
       // a jump-cut to its aftermath.
-      b.onclick = () => { setPlaying(false); renderAt(Math.max(sp.g0, gt - 1200)); };
+      b.onclick = () => {
+        setPlaying(false);
+        // Pin the clicked action: the seek lands a beat BEFORE it so the moment
+        // is seen in context, and without this the highlight recomputed from
+        // that earlier time and lit the previous action instead.
+        T.pinned = gt;
+        renderAt(Math.max(sp.g0, gt - 1200));
+      };
       acts.appendChild(b);
     });
     g.appendChild(head);
@@ -340,6 +366,15 @@ function highlight(spanIndex) {
   const all = [...$("timeline").querySelectorAll(".act")];
   let active = -1;
   all.forEach((b, j) => { if (Number(b.dataset.g) <= T.t + 250) active = j; });
+  // A pinned action wins until the clock actually reaches it, then releases.
+  if (T.pinned != null) {
+    if (T.t + 250 < T.pinned) {
+      const idx = all.findIndex((b) => Number(b.dataset.g) === T.pinned);
+      if (idx >= 0) active = idx;
+    } else {
+      T.pinned = null;
+    }
+  }
   all.forEach((b, j) => b.setAttribute("aria-current", String(j === active)));
   if (active >= 0 && all[active]) {
     all[active].scrollIntoView({ block: "nearest" });
@@ -439,7 +474,7 @@ function seekTo(offsetMs, play = false) {
 }
 
 $("playBtn").onclick = () => setPlaying(!T.playing);
-$("scrub").oninput = (e) => { setPlaying(false); renderAt(Number(e.target.value)); };
+$("scrub").oninput = (e) => { setPlaying(false); T.pinned = null; renderAt(Number(e.target.value)); };
 
 load();
 </script>
