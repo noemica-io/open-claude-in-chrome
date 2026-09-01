@@ -73,6 +73,15 @@
   .mark .t{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums}
   .mark .tool{font-weight:600}
 
+  /* ---- session transport: ONE scrubber across every tab ---- */
+  .transport{display:flex;align-items:center;gap:10px;margin:0 0 10px;padding:9px 11px;
+    border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+  .transport .play{width:32px;height:32px;flex:none;border-radius:50%;border:1px solid var(--line);
+    background:var(--accent);color:#fff;font-size:12px;line-height:1;cursor:pointer;padding:0}
+  .transport .tnow{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:var(--muted);
+    font-variant-numeric:tabular-nums;flex:none;min-width:34px;text-align:center}
+  .scrub{flex:1;min-width:0;accent-color:var(--accent);height:4px}
+  .nowtab{font-size:11.5px;font-weight:600;color:var(--accent);flex:none;min-width:96px;text-align:right}
   #player{margin-top:4px}
   #player .rr-player{max-width:100%}
   .empty{color:var(--muted);font-size:13px;padding:28px 0;text-align:center}
@@ -105,6 +114,13 @@
       <div class="marks" id="marks" hidden>
         <h4>Actions in this segment — click to jump</h4>
         <div class="mrow" id="mrow"></div>
+      </div>
+      <div class="transport" id="transport" hidden>
+        <button id="playBtn" class="play" type="button" aria-label="Play">▶</button>
+        <span class="tnow" id="tNow">0:00</span>
+        <input id="scrub" class="scrub" type="range" min="0" max="1000" value="0" step="1" aria-label="Session timeline">
+        <span class="tnow" id="tTotal">0:00</span>
+        <span class="nowtab" id="nowTab"></span>
       </div>
       <div id="player"></div>
       <p class="err" id="err" hidden></p>
@@ -184,7 +200,7 @@ function selectSession(i) {
   cur.session = DATA.sessions[i];
   [...$("slist").children].forEach((c, j) => c.setAttribute("aria-current", String(i === j)));
   renderSegments();
-  selectSegment(0);
+  buildTimeline();
 }
 
 function renderSegments() {
@@ -206,7 +222,108 @@ function renderSegments() {
   });
 }
 
-function selectSegment(i) {
+// ---------------------------------------------------------------------------
+// One timeline across the whole session.
+//
+// The streams cannot be concatenated — rrweb node ids are per-snapshot — so the
+// continuity is built here instead: each segment contributes its own window to
+// a single global clock, and playback swaps the underlying player at the
+// boundaries. The reviewer presses play once and the tab switches happen on
+// their own, which is the entire point of an audit.
+//
+// Dead time between segments is compressed out. Wall-clock gaps are time the
+// agent spent in ANOTHER tab, already shown by that tab's own segment, so
+// replaying them as a frozen screen would be showing nothing twice.
+const LEAD_IN_MS = 1000;   // a beat before the first action, for context
+const LEAD_OUT_MS = 2500;  // and the aftermath of the last one
+
+let T = { spans: [], total: 0, t: 0, playing: false, timer: null, mounted: -1 };
+
+function buildTimeline() {
+  const { segments, streams } = cur.session;
+  T.spans = [];
+  let acc = 0;
+  segments.forEach((seg, i) => {
+    const st = streams[seg.streamId];
+    if (!st || !st.events || st.events.length < 2) return;
+    const first = st.events[0].timestamp;
+    const last = st.events[st.events.length - 1].timestamp;
+    // Clamp the window to what the stream actually holds, so we never ask the
+    // player to seek past its own end.
+    const winStart = Math.max(first, seg.tStart - LEAD_IN_MS);
+    const winEnd = Math.min(last, Math.max(seg.tEnd + LEAD_OUT_MS, winStart + 1200));
+    const dur = Math.max(600, winEnd - winStart);
+    T.spans.push({ segIndex: i, streamId: seg.streamId, tabId: seg.tabId, first, winStart, dur, g0: acc });
+    acc += dur;
+  });
+  T.total = acc;
+  T.t = 0;
+  T.mounted = -1;
+  $("transport").hidden = T.spans.length === 0;
+  $("tTotal").textContent = fmtClock(T.total);
+  $("scrub").max = String(Math.max(1, Math.round(T.total)));
+  renderAt(0);
+}
+
+function spanAt(t) {
+  for (let i = T.spans.length - 1; i >= 0; i--) if (t >= T.spans[i].g0) return i;
+  return 0;
+}
+
+// Move the whole view to global time t: mount the right segment if it changed,
+// seek inside it, and keep the chrome (chips, markers, labels) in step.
+function renderAt(t, { play = false } = {}) {
+  if (!T.spans.length) return;
+  T.t = Math.max(0, Math.min(t, T.total));
+  const i = spanAt(T.t);
+  const sp = T.spans[i];
+  if (T.mounted !== i) {
+    T.mounted = i;
+    selectSegment(sp.segIndex, { fromTimeline: true });
+  }
+  const localOffset = sp.winStart - sp.first + (T.t - sp.g0);
+  seekTo(localOffset, play);
+  $("scrub").value = String(Math.round(T.t));
+  $("tNow").textContent = fmtClock(T.t);
+  $("nowTab").textContent = `tab ${sp.tabId}`;
+}
+
+function setPlaying(on) {
+  T.playing = on;
+  $("playBtn").textContent = on ? "❚❚" : "▶";
+  $("playBtn").setAttribute("aria-label", on ? "Pause" : "Play");
+  if (T.timer) clearInterval(T.timer);
+  T.timer = null;
+  if (!on) {
+    if (cur.player) { try { cur.player.pause(); } catch {} }
+    return;
+  }
+  if (T.t >= T.total - 50) T.t = 0; // replay from the top rather than stalling
+  renderAt(T.t, { play: true });
+  // Derive elapsed time from the wall clock rather than accumulating a fixed
+  // step per tick. Chrome throttles timers in a background tab to about 1Hz, so
+  // a `t += 100` clock ran roughly eight times slow the moment the page lost
+  // focus — the audit played in slow motion and never reached the second tab.
+  // Reading the clock makes throttling cost smoothness, never rate.
+  const wall0 = Date.now();
+  const base = T.t;
+  T.timer = setInterval(() => {
+    const next = base + (Date.now() - wall0);
+    if (next >= T.total) { renderAt(T.total); setPlaying(false); return; }
+    const before = spanAt(T.t);
+    const after = spanAt(next);
+    // Only re-seek the underlying player at a boundary; in between it plays on
+    // its own clock, so playback stays smooth instead of stuttering every tick.
+    if (before !== after) renderAt(next, { play: true });
+    else {
+      T.t = next;
+      $("scrub").value = String(Math.round(T.t));
+      $("tNow").textContent = fmtClock(T.t);
+    }
+  }, 100);
+}
+
+function selectSegment(i, opts = {}) {
   const { segments, streams } = cur.session;
   cur.segIndex = i;
   [...$("segs").children].forEach((c, j) => c.setAttribute && c.setAttribute("aria-current", String(i === j)));
@@ -223,6 +340,10 @@ function selectSegment(i) {
 
   mountPlayer(st, seg);
   renderMarks(st, seg);
+  if (!opts.fromTimeline) {
+    const sp = T.spans.find((x) => x.segIndex === i);
+    if (sp) { T.mounted = T.spans.indexOf(sp); renderAt(sp.g0); }
+  }
 }
 
 function mountPlayer(stream, seg) {
@@ -244,7 +365,7 @@ function mountPlayer(stream, seg) {
         width: Math.min(host.clientWidth || 900, 1000),
         height: 420,
         autoPlay: false,
-        showController: true
+        showController: false
       }
     });
     // Open on the moment the agent first acted here, not at the page's birth —
@@ -256,9 +377,9 @@ function mountPlayer(stream, seg) {
   }
 }
 
-function seekTo(offsetMs) {
+function seekTo(offsetMs, play = false) {
   if (!cur.player) return;
-  try { cur.player.goto(Math.max(0, offsetMs)); } catch {}
+  try { cur.player.goto(Math.max(0, offsetMs), play); } catch {}
 }
 
 function renderMarks(stream, seg) {
@@ -275,7 +396,12 @@ function renderMarks(stream, seg) {
     b.title = a.detail || "";
     // Land a beat BEFORE the action so the click is seen in context rather
     // than as a jump-cut to its aftermath.
-    b.onclick = () => seekTo(a.t - t0 - 1500);
+    b.onclick = () => {
+      setPlaying(false);
+      const sp = T.spans.find((x) => x.segIndex === cur.segIndex);
+      if (sp) renderAt(sp.g0 + (a.t - 1500 - sp.winStart));
+      else seekTo(a.t - t0 - 1500);
+    };
     row.appendChild(b);
   });
 }
@@ -288,6 +414,9 @@ function switchTab(audits) {
   $("pane-audits").hidden = !audits;
   $("pane-recordings").hidden = audits;
 }
+
+$("playBtn").onclick = () => setPlaying(!T.playing);
+$("scrub").oninput = (e) => { setPlaying(false); renderAt(Number(e.target.value)); };
 
 load();
 </script>

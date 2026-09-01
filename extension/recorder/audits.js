@@ -70,7 +70,7 @@ async function selectSession(sessionId, index) {
   $("auditPanel").hidden = !cur.payload;
   if (!cur.payload) return;
   renderSegments();
-  selectSegment(0);
+  buildTimeline();
 }
 
 function renderSegments() {
@@ -91,12 +91,115 @@ function renderSegments() {
       `<span class="cnt">${seg.actions.length} action${seg.actions.length === 1 ? "" : "s"} · ` +
       `${fmtClock(seg.tEnd - seg.tStart)}</span>`;
     b.title = (st && st.url) || seg.streamId;
-    b.onclick = () => selectSegment(i);
+    b.onclick = () => {
+      const sp = T.spans.find((x) => x.segIndex === i);
+      if (sp) { setPlaying(false); renderAt(sp.g0); }
+      else selectSegment(i);
+    };
     host.appendChild(b);
   });
 }
 
-function selectSegment(i) {
+// ---------------------------------------------------------------------------
+// One timeline across the whole session.
+//
+// The streams cannot be concatenated — rrweb node ids are per-snapshot — so the
+// continuity is built here instead: each segment contributes its own window to
+// a single global clock, and playback swaps the underlying player at the
+// boundaries. The reviewer presses play once and the tab switches happen on
+// their own, which is the entire point of an audit; having to click between
+// tabs and reassemble the order by hand is not a replay.
+//
+// Dead time between segments is compressed out. A wall-clock gap is time the
+// agent spent in ANOTHER tab, already shown by that tab's own segment, so
+// replaying it as a frozen screen would be showing nothing twice.
+const LEAD_IN_MS = 1000;
+const LEAD_OUT_MS = 2500;
+
+let T = { spans: [], total: 0, t: 0, playing: false, timer: null, mounted: -1 };
+
+function buildTimeline() {
+  const { segments, streams } = cur.payload;
+  T.spans = [];
+  let acc = 0;
+  segments.forEach((seg, i) => {
+    const st = streams[seg.streamId];
+    if (!st || !st.events || st.events.length < 2) return;
+    const first = st.events[0].timestamp;
+    const last = st.events[st.events.length - 1].timestamp;
+    // Clamp to what the stream actually holds, so the player is never asked to
+    // seek past its own end.
+    const winStart = Math.max(first, seg.tStart - LEAD_IN_MS);
+    const winEnd = Math.min(last, Math.max(seg.tEnd + LEAD_OUT_MS, winStart + 1200));
+    const dur = Math.max(600, winEnd - winStart);
+    T.spans.push({ segIndex: i, streamId: seg.streamId, tabId: seg.tabId, first, winStart, dur, g0: acc });
+    acc += dur;
+  });
+  T.total = acc;
+  T.t = 0;
+  T.mounted = -1;
+  $("transport").hidden = T.spans.length === 0;
+  $("tTotal").textContent = fmtClock(T.total);
+  $("scrub").max = String(Math.max(1, Math.round(T.total)));
+  if (T.spans.length) renderAt(0);
+  else selectSegment(0);
+}
+
+function spanAt(t) {
+  for (let i = T.spans.length - 1; i >= 0; i--) if (t >= T.spans[i].g0) return i;
+  return 0;
+}
+
+function renderAt(t, { play = false } = {}) {
+  if (!T.spans.length) return;
+  T.t = Math.max(0, Math.min(t, T.total));
+  const i = spanAt(T.t);
+  const sp = T.spans[i];
+  if (T.mounted !== i) {
+    T.mounted = i;
+    selectSegment(sp.segIndex, { fromTimeline: true });
+  }
+  seekTo(sp.winStart - sp.first + (T.t - sp.g0), play);
+  $("scrub").value = String(Math.round(T.t));
+  $("tNow").textContent = fmtClock(T.t);
+  $("nowTab").textContent = `tab ${sp.tabId}`;
+}
+
+function setPlaying(on) {
+  T.playing = on;
+  $("playBtn").innerHTML = on ? "&#10074;&#10074;" : "&#9654;";
+  $("playBtn").setAttribute("aria-label", on ? "Pause" : "Play");
+  if (T.timer) clearInterval(T.timer);
+  T.timer = null;
+  if (!on) {
+    if (cur.player) { try { cur.player.pause(); } catch {} }
+    return;
+  }
+  if (T.t >= T.total - 50) T.t = 0;
+  renderAt(T.t, { play: true });
+  // Elapsed comes from the wall clock, not from accumulating a step per tick:
+  // Chrome throttles timers in a background tab to about 1Hz, which made a
+  // `t += 100` clock run roughly eight times slow and never reach the second
+  // tab. Reading the clock makes throttling cost smoothness, never rate.
+  const wall0 = Date.now();
+  const base = T.t;
+  T.timer = setInterval(() => {
+    const next = base + (Date.now() - wall0);
+    if (next >= T.total) { renderAt(T.total); setPlaying(false); return; }
+    const before = spanAt(T.t);
+    const after = spanAt(next);
+    // Re-seek only at a boundary; in between the player runs on its own clock,
+    // so playback stays smooth instead of stuttering every tick.
+    if (before !== after) renderAt(next, { play: true });
+    else {
+      T.t = next;
+      $("scrub").value = String(Math.round(T.t));
+      $("tNow").textContent = fmtClock(T.t);
+    }
+  }, 100);
+}
+
+function selectSegment(i, opts = {}) {
   const { segments, streams } = cur.payload;
   cur.segIndex = i;
   [...$("segs").children].forEach((c, j) =>
@@ -123,6 +226,10 @@ function selectSegment(i) {
 
   renderMarks(st, seg);
   mountPlayer(st, seg);
+  if (!opts.fromTimeline) {
+    const sp = T.spans.find((x) => x.segIndex === i);
+    if (sp) { T.mounted = T.spans.indexOf(sp); renderAt(sp.g0); }
+  }
 }
 
 function mountPlayer(stream, seg) {
@@ -147,7 +254,7 @@ function mountPlayer(stream, seg) {
         width: Math.min(host.clientWidth || 900, 1000),
         height: 420,
         autoPlay: false,
-        showController: true
+        showController: false
       }
     });
     // Open on the moment the agent first acted here, not the page's birth.
@@ -158,10 +265,10 @@ function mountPlayer(stream, seg) {
   }
 }
 
-function seekTo(offsetMs) {
+function seekTo(offsetMs, play = false) {
   if (!cur.player) return;
   try {
-    cur.player.goto(Math.max(0, offsetMs));
+    cur.player.goto(Math.max(0, offsetMs), play);
   } catch {}
 }
 
@@ -183,7 +290,12 @@ function renderMarks(stream, seg) {
     b.title = a.detail || "";
     // Land a beat BEFORE the action, so it is seen in context rather than as a
     // jump-cut to its aftermath.
-    b.onclick = () => seekTo(a.t - t0 - 1500);
+    b.onclick = () => {
+      setPlaying(false);
+      const sp = T.spans.find((x) => x.segIndex === cur.segIndex);
+      if (sp) renderAt(sp.g0 + (a.t - 1500 - sp.winStart));
+      else seekTo(a.t - t0 - 1500);
+    };
     row.appendChild(b);
   });
 }
@@ -218,4 +330,9 @@ export function wireAuditTabs() {
   }
   const rf = $("auditRefresh");
   if (rf) rf.onclick = () => refreshAudits();
+
+  const play = $("playBtn");
+  if (play) play.onclick = () => setPlaying(!T.playing);
+  const scrub = $("scrub");
+  if (scrub) scrub.oninput = (e) => { setPlaying(false); renderAt(Number(e.target.value)); };
 }

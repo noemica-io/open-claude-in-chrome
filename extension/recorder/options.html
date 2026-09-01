@@ -132,6 +132,14 @@
   .mark:hover{border-color:var(--accent)}
   .mark .t{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums}
   .mark .tool{font-weight:600}
+  .transport{display:flex;align-items:center;gap:10px;margin:0 0 10px;padding:9px 11px;
+    border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+  .transport .play{width:32px;height:32px;flex:none;border-radius:50%;border:1px solid var(--line);
+    background:var(--accent);color:#fff;font-size:12px;line-height:1;cursor:pointer;padding:0}
+  .transport .tnow{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:var(--muted);
+    font-variant-numeric:tabular-nums;flex:none;min-width:34px;text-align:center}
+  .scrub{flex:1;min-width:0;accent-color:var(--accent);height:4px}
+  .nowtab{font-size:11.5px;font-weight:600;color:var(--accent);flex:none;min-width:96px;text-align:right}
   #player{margin-top:4px}
   #player .rr-player{max-width:100%}
   .arow{display:flex;gap:8px;align-items:center;margin:0 0 12px}
@@ -165,6 +173,13 @@
         <div class="marks" id="marks" hidden>
           <h4>Actions in this segment — click to jump</h4>
           <div class="mrow" id="mrow"></div>
+        </div>
+        <div class="transport" id="transport" hidden>
+          <button id="playBtn" class="play" type="button" aria-label="Play">&#9654;</button>
+          <span class="tnow" id="tNow">0:00</span>
+          <input id="scrub" class="scrub" type="range" min="0" max="1000" value="0" step="1" aria-label="Session timeline">
+          <span class="tnow" id="tTotal">0:00</span>
+          <span class="nowtab" id="nowTab"></span>
         </div>
         <div id="player"></div>
       </div>
