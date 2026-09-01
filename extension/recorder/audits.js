@@ -11,6 +11,10 @@ import { listSessions, readSession, deleteSession } from "../audit/index.js";
 const $ = (id) => document.getElementById(id);
 let cur = { payload: null, segIndex: 0, player: null };
 
+function siteOf(url) {
+  try { return new URL(url).host; } catch { return ""; }
+}
+
 function fmtClock(ms) {
   const s = Math.max(0, Math.round(ms / 1000));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
@@ -40,22 +44,21 @@ export async function refreshAudits() {
   }
   host.innerHTML = "";
   sessions.forEach((s, i) => {
-    let label = s.title || "";
-    const site = (() => {
-      try { return new URL(s.url).host; } catch { return ""; }
-    })();
-    if (!label || label.length < 4 || label === "(untitled)") label = site || s.sessionId;
-    else if (site) label = `${label} — ${site}`;
-
     const b = document.createElement("button");
     b.className = "sitem";
     b.setAttribute("aria-current", String(i === 0));
     b.innerHTML =
-      `<span class="id">client ${s.clientId}</span>` +
+      `<span class="id">Claude session ${s.clientId}</span>` +
       `<span class="ttl"></span>` +
-      `<span class="meta">${s.segmentCount} segment${s.segmentCount === 1 ? "" : "s"} · ` +
-      `${s.actionCount} actions · ${s.tabs} tab${s.tabs === 1 ? "" : "s"} · ${fmtWhen(s.startedAt)}</span>`;
-    b.querySelector(".ttl").textContent = label;
+      `<span class="meta">${s.actionCount} actions · ${s.tabs} tab${s.tabs === 1 ? "" : "s"} · ` +
+      `${fmtWhen(s.startedAt)}</span>`;
+    // The journey IS the identity. "client 1" means nothing alone, and every
+    // capture of one page shares a title, so the list read "untouched" four
+    // times over. The sequence of sites is what a reviewer recognises.
+    b.querySelector(".ttl").textContent = s.journey && s.journey.length
+      ? s.journey.join(" → ")
+      : "(nothing recorded)";
+    b.title = s.sessionId;
     b.onclick = () => selectSession(s.sessionId, i);
     host.appendChild(b);
   });
@@ -69,35 +72,7 @@ async function selectSession(sessionId, index) {
   cur.payload = await readSession(sessionId);
   $("auditPanel").hidden = !cur.payload;
   if (!cur.payload) return;
-  renderSegments();
   buildTimeline();
-}
-
-function renderSegments() {
-  const host = $("segs");
-  host.innerHTML = "";
-  const { segments, streams } = cur.payload;
-  if (!segments.length) {
-    host.innerHTML = '<span class="empty">No recorded segments.</span>';
-    return;
-  }
-  segments.forEach((seg, i) => {
-    const st = streams[seg.streamId];
-    const b = document.createElement("button");
-    b.className = "seg";
-    b.innerHTML =
-      `<span class="n">${String(i + 1).padStart(2, "0")}</span>` +
-      `<span class="tab">tab ${seg.tabId}</span>` +
-      `<span class="cnt">${seg.actions.length} action${seg.actions.length === 1 ? "" : "s"} · ` +
-      `${fmtClock(seg.tEnd - seg.tStart)}</span>`;
-    b.title = (st && st.url) || seg.streamId;
-    b.onclick = () => {
-      const sp = T.spans.find((x) => x.segIndex === i);
-      if (sp) { setPlaying(false); renderAt(sp.g0); }
-      else selectSegment(i);
-    };
-    host.appendChild(b);
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -114,7 +89,7 @@ function renderSegments() {
 // agent spent in ANOTHER tab, already shown by that tab's own segment, so
 // replaying it as a frozen screen would be showing nothing twice.
 const LEAD_IN_MS = 1000;
-const LEAD_OUT_MS = 2500;
+const LEAD_OUT_MS = 3000;
 
 let T = { spans: [], total: 0, t: 0, playing: false, timer: null, mounted: -1 };
 
@@ -127,12 +102,21 @@ function buildTimeline() {
     if (!st || !st.events || st.events.length < 2) return;
     const first = st.events[0].timestamp;
     const last = st.events[st.events.length - 1].timestamp;
-    // Clamp to what the stream actually holds, so the player is never asked to
-    // seek past its own end.
     const winStart = Math.max(first, seg.tStart - LEAD_IN_MS);
-    const winEnd = Math.min(last, Math.max(seg.tEnd + LEAD_OUT_MS, winStart + 1200));
-    const dur = Math.max(600, winEnd - winStart);
-    T.spans.push({ segIndex: i, streamId: seg.streamId, tabId: seg.tabId, first, winStart, dur, g0: acc });
+    // Do NOT clamp the window to the stream's last event. rrweb stops emitting
+    // the moment a page goes quiet, so the final event can land milliseconds
+    // after the last action — clamping there cut the action's aftermath off,
+    // and a scroll snapped away to the next tab just as it began. The window
+    // runs past the events; the SEEK is clamped instead, so the replay holds
+    // its final frame for the remainder.
+    const winEnd = Math.max(seg.tEnd + LEAD_OUT_MS, winStart + 1500);
+    const dur = Math.max(900, winEnd - winStart);
+    T.spans.push({
+      segIndex: i, streamId: seg.streamId, tabId: seg.tabId,
+      first, last, streamDur: Math.max(0, last - first), winStart, dur, g0: acc,
+      site: siteOf(st.url) || `tab ${seg.tabId}`,
+      actions: seg.actions
+    });
     acc += dur;
   });
   T.total = acc;
@@ -141,6 +125,7 @@ function buildTimeline() {
   $("transport").hidden = T.spans.length === 0;
   $("tTotal").textContent = fmtClock(T.total);
   $("scrub").max = String(Math.max(1, Math.round(T.total)));
+  renderTimeline();
   if (T.spans.length) renderAt(0);
   else selectSegment(0);
 }
@@ -159,11 +144,67 @@ function renderAt(t, { play = false } = {}) {
     T.mounted = i;
     selectSegment(sp.segIndex, { fromTimeline: true });
   }
-  seekTo(sp.winStart - sp.first + (T.t - sp.g0), play);
+  // Clamp into the stream: past its end the player holds the final frame,
+  // which is what makes the lead-out above possible.
+  seekTo(Math.min(sp.winStart - sp.first + (T.t - sp.g0), sp.streamDur), play);
   $("scrub").value = String(Math.round(T.t));
   $("tNow").textContent = fmtClock(T.t);
-  $("nowTab").textContent = `tab ${sp.tabId}`;
+  $("nowTab").textContent = sp.site;
+  highlight(i);
 }
+
+function globalTimeOf(sp, a) {
+  return Math.max(sp.g0, Math.min(sp.g0 + sp.dur, sp.g0 + (a.t - sp.winStart)));
+}
+
+function renderTimeline() {
+  const host = $("timeline");
+  host.innerHTML = "";
+  if (!T.spans.length) {
+    host.innerHTML = '<span class="empty">Nothing was recorded in this session.</span>';
+    return;
+  }
+  T.spans.forEach((sp, i) => {
+    const g = document.createElement("div");
+    g.className = "tlgroup";
+    g.dataset.span = String(i);
+    const head = document.createElement("div");
+    head.className = "tlhead";
+    head.innerHTML = `<span class="site"></span><span class="tabid">tab ${sp.tabId}</span>`;
+    head.querySelector(".site").textContent = sp.site;
+    const acts = document.createElement("div");
+    acts.className = "tlacts";
+    sp.actions.forEach((a) => {
+      const gt = globalTimeOf(sp, a);
+      const b = document.createElement("button");
+      b.className = "act";
+      b.dataset.g = String(gt);
+      b.innerHTML = `<span class="t">${fmtClock(gt)}</span><span class="tool"></span>`;
+      b.querySelector(".tool").textContent = a.action ? `${a.tool}.${a.action}` : a.tool;
+      b.title = a.detail || "";
+      // Land a beat before the action, so it is seen in context rather than as
+      // a jump-cut to its aftermath.
+      b.onclick = () => { setPlaying(false); renderAt(Math.max(sp.g0, gt - 1200)); };
+      acts.appendChild(b);
+    });
+    g.appendChild(head);
+    g.appendChild(acts);
+    host.appendChild(g);
+  });
+}
+
+function highlight(spanIndex) {
+  const groups = [...$("timeline").querySelectorAll(".tlgroup")];
+  groups.forEach((g, j) => g.setAttribute("data-active", String(j === spanIndex)));
+  const all = [...$("timeline").querySelectorAll(".act")];
+  let active = -1;
+  all.forEach((b, j) => { if (Number(b.dataset.g) <= T.t + 250) active = j; });
+  all.forEach((b, j) => b.setAttribute("aria-current", String(j === active)));
+  if (active >= 0 && all[active]) {
+    all[active].scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+}
+
 
 function setPlaying(on) {
   T.playing = on;
@@ -202,9 +243,6 @@ function setPlaying(on) {
 function selectSegment(i, opts = {}) {
   const { segments, streams } = cur.payload;
   cur.segIndex = i;
-  [...$("segs").children].forEach((c, j) =>
-    c.setAttribute && c.setAttribute("aria-current", String(i === j))
-  );
   const seg = segments[i];
   if (!seg) return;
   const st = streams[seg.streamId];
@@ -224,12 +262,7 @@ function selectSegment(i, opts = {}) {
     badge.hidden = true;
   }
 
-  renderMarks(st, seg);
   mountPlayer(st, seg);
-  if (!opts.fromTimeline) {
-    const sp = T.spans.find((x) => x.segIndex === i);
-    if (sp) { T.mounted = T.spans.indexOf(sp); renderAt(sp.g0); }
-  }
 }
 
 function mountPlayer(stream, seg) {
@@ -270,34 +303,6 @@ function seekTo(offsetMs, play = false) {
   try {
     cur.player.goto(Math.max(0, offsetMs), play);
   } catch {}
-}
-
-function renderMarks(stream, seg) {
-  const wrap = $("marks");
-  const row = $("mrow");
-  row.innerHTML = "";
-  if (!stream || !stream.events.length) {
-    wrap.hidden = true;
-    return;
-  }
-  const t0 = stream.events[0].timestamp;
-  wrap.hidden = false;
-  seg.actions.forEach((a) => {
-    const b = document.createElement("button");
-    b.className = "mark";
-    b.innerHTML = `<span class="t">${fmtClock(a.t - t0)}</span><span class="tool"></span>`;
-    b.querySelector(".tool").textContent = a.action ? `${a.tool}.${a.action}` : a.tool;
-    b.title = a.detail || "";
-    // Land a beat BEFORE the action, so it is seen in context rather than as a
-    // jump-cut to its aftermath.
-    b.onclick = () => {
-      setPlaying(false);
-      const sp = T.spans.find((x) => x.segIndex === cur.segIndex);
-      if (sp) renderAt(sp.g0 + (a.t - 1500 - sp.winStart));
-      else seekTo(a.t - t0 - 1500);
-    };
-    row.appendChild(b);
-  });
 }
 
 export function wireAuditTabs() {

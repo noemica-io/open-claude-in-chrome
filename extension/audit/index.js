@@ -351,6 +351,18 @@ export async function listSessions() {
     .sort((a, b) => b.startedAt - a.startedAt)
     .map((s) => {
       const segs = segmentsOf(s);
+      // The sequence of sites a session moved through. A page title is a poor
+      // identity — several captures of one page all read the same — while the
+      // journey is what a reviewer actually recognises a session by.
+      const journey = [];
+      for (const seg of segs) {
+        const st = byId.get(seg.streamId);
+        let site = `tab ${seg.tabId}`;
+        try {
+          if (st && st.url) site = new URL(st.url).host || site;
+        } catch {}
+        if (journey[journey.length - 1] !== site) journey.push(site);
+      }
       return {
         sessionId: s.sessionId,
         clientId: s.clientId,
@@ -359,6 +371,7 @@ export async function listSessions() {
         actionCount: (s.actions || []).length,
         segmentCount: segs.length,
         tabs: [...new Set(segs.map((x) => x.tabId))].length,
+        journey,
         title: segs.map((x) => byId.get(x.streamId)?.title).find(Boolean) || "(untitled)",
         url: segs.map((x) => byId.get(x.streamId)?.url).find(Boolean) || ""
       };

@@ -116,22 +116,26 @@
   .badge{font-size:11px;font-weight:600;padding:2px 7px;border-radius:20px;border:1px solid var(--line);color:var(--muted)}
   .badge.live{color:var(--ok);border-color:var(--ok)}
   .badge.trunc{color:var(--rec);border-color:var(--rec)}
-  .segs{display:flex;gap:6px;overflow-x:auto;padding:2px 0 8px}
-  .seg{flex:0 0 auto;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--ink);
-    font:inherit;font-size:12px;padding:7px 11px;cursor:pointer;display:flex;flex-direction:column;gap:1px;min-width:104px}
-  .seg:hover{border-color:var(--accent)}
-  .seg[aria-current="true"]{border-color:var(--accent);background:var(--panel);box-shadow:0 0 0 1px var(--accent) inset}
-  .seg .n{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--muted)}
-  .seg .tab{font-weight:600}
-  .seg .cnt{color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
-  .marks{margin:2px 0 12px;border-top:1px solid var(--line);padding-top:10px}
-  .marks h4{margin:0 0 7px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
-  .mrow{display:flex;flex-wrap:wrap;gap:5px}
-  .mark{border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit;
-    font-size:11.5px;padding:4px 9px;cursor:pointer;display:flex;gap:7px;align-items:baseline}
-  .mark:hover{border-color:var(--accent)}
-  .mark .t{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums}
-  .mark .tool{font-weight:600}
+  /* one action timeline, grouped by tab: "segment" is our word, not the
+     reader's — they know tabs and actions, so the grouping shows which actions
+     belong to which tab without ever naming the concept */
+  .tl{display:flex;gap:0;overflow-x:auto;padding:2px 0 10px;align-items:stretch}
+  .tlgroup{flex:0 0 auto;display:flex;flex-direction:column;gap:6px;padding:8px 12px;border-radius:9px;
+    border:1px solid transparent}
+  .tlgroup + .tlgroup{margin-left:6px;border-left:1px dashed var(--line);padding-left:16px}
+  .tlgroup[data-active="true"]{background:var(--bg);border-color:var(--line)}
+  .tlhead{display:flex;gap:7px;align-items:baseline;white-space:nowrap}
+  .tlhead .site{font-weight:600;font-size:12px}
+  .tlhead .tabid{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--muted)}
+  .tlgroup[data-active="true"] .tlhead .site{color:var(--accent)}
+  .tlacts{display:flex;gap:5px}
+  .act{border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink);font:inherit;
+    font-size:11.5px;padding:5px 9px;cursor:pointer;display:flex;gap:7px;align-items:baseline;white-space:nowrap}
+  .act:hover{border-color:var(--accent)}
+  .act[aria-current="true"]{border-color:var(--accent);background:var(--accent);color:#fff}
+  .act[aria-current="true"] .t{color:#fff;opacity:.85}
+  .act .t{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .act .tool{font-weight:600}
   .transport{display:flex;align-items:center;gap:10px;margin:0 0 10px;padding:9px 11px;
     border:1px solid var(--line);border-radius:8px;background:var(--bg)}
   .transport .play{width:32px;height:32px;flex:none;border-radius:50%;border:1px solid var(--line);
@@ -150,43 +154,6 @@
   <h1>Open Claude in Chrome — Recorder</h1>
   <p class="sub">Record an expert browser rollout (behavior + narration) and hand it to a live Claude Code session. Click the toolbar icon to start/stop a recording.</p>
 
-  <div class="tabs" role="tablist">
-    <button role="tab" aria-selected="false" id="tab-audits">Audits</button>
-    <button role="tab" aria-selected="true" id="tab-recordings">Recordings</button>
-  </div>
-
-  <div id="pane-audits" hidden>
-    <p class="sub" style="margin:-6px 0 16px">Passive replays of what an agent did, one timeline per Claude Code session. Turn on with <code>set_config audit_mode=audit</code>.</p>
-    <div class="arow">
-      <button id="auditRefresh" class="sec" type="button">Refresh</button>
-      <button id="auditDelete" class="sec" type="button">Delete selected</button>
-    </div>
-    <div class="acols">
-      <div class="slist" id="auditList"></div>
-      <div class="apanel" id="auditPanel" hidden>
-        <div class="phead">
-          <strong id="segTitle">No session</strong>
-          <span class="url" id="segUrl"></span>
-          <span class="badge" id="segBadge" hidden></span>
-        </div>
-        <div class="segs" id="segs"></div>
-        <div class="marks" id="marks" hidden>
-          <h4>Actions in this segment — click to jump</h4>
-          <div class="mrow" id="mrow"></div>
-        </div>
-        <div class="transport" id="transport" hidden>
-          <button id="playBtn" class="play" type="button" aria-label="Play">&#9654;</button>
-          <span class="tnow" id="tNow">0:00</span>
-          <input id="scrub" class="scrub" type="range" min="0" max="1000" value="0" step="1" aria-label="Session timeline">
-          <span class="tnow" id="tTotal">0:00</span>
-          <span class="nowtab" id="nowTab"></span>
-        </div>
-        <div id="player"></div>
-      </div>
-    </div>
-  </div>
-
-  <div id="pane-recordings">
   <h2>OpenAI API key</h2>
   <div class="card">
     <label for="key">Required before recording (used for speech-to-text)</label>
@@ -208,7 +175,40 @@
     </div>
   </div>
 
-  <h2>Recorded sessions</h2>
+  <div class="tabs" role="tablist">
+    <button role="tab" aria-selected="false" id="tab-audits">Audits</button>
+    <button role="tab" aria-selected="true" id="tab-recordings">Recordings</button>
+  </div>
+
+  <div id="pane-audits" hidden>
+    <p class="sub" style="margin:-6px 0 16px">Passive replays of what an agent did, one timeline per Claude Code session. Turn on with <code>set_config audit_mode=audit</code>.</p>
+    <div class="arow">
+      <button id="auditRefresh" class="sec" type="button">Refresh</button>
+      <button id="auditDelete" class="sec" type="button">Delete selected</button>
+    </div>
+    <div class="acols">
+      <div class="slist" id="auditList"></div>
+      <div class="apanel" id="auditPanel" hidden>
+        <div class="phead">
+          <strong id="segTitle">No session</strong>
+          <span class="url" id="segUrl"></span>
+          <span class="badge" id="segBadge" hidden></span>
+        </div>
+        <div class="tl" id="timeline"></div>
+        <div class="transport" id="transport" hidden>
+          <button id="playBtn" class="play" type="button" aria-label="Play">&#9654;</button>
+          <span class="tnow" id="tNow">0:00</span>
+          <input id="scrub" class="scrub" type="range" min="0" max="1000" value="0" step="1" aria-label="Session timeline">
+          <span class="tnow" id="tTotal">0:00</span>
+          <span class="nowtab" id="nowTab"></span>
+        </div>
+        <div id="player"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="pane-recordings">
+    <h2 style="margin-top:0">Recorded sessions</h2>
   <div id="sessions"><div class="empty">No recordings yet.</div></div>
   </div>
 </div>

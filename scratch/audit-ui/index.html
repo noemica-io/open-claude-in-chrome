@@ -53,25 +53,27 @@
   .badge.live{color:var(--ok);border-color:var(--ok)}
   .badge.trunc{color:var(--rec);border-color:var(--rec)}
 
-  /* ---- segment strip: the tab-A → tab-B → tab-A timeline ---- */
-  .segs{display:flex;gap:6px;overflow-x:auto;padding:2px 0 8px}
-  .seg{flex:0 0 auto;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--ink);
-    font:inherit;font-size:12px;padding:7px 11px;cursor:pointer;display:flex;flex-direction:column;gap:1px;min-width:104px}
-  .seg:hover{border-color:var(--accent)}
-  .seg[aria-current="true"]{border-color:var(--accent);background:var(--panel);box-shadow:0 0 0 1px var(--accent) inset}
-  .seg .n{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--muted)}
-  .seg .tab{font-weight:600}
-  .seg .cnt{color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
-
-  /* ---- action markers: jump action-to-action ---- */
-  .marks{margin:2px 0 12px;border-top:1px solid var(--line);padding-top:10px}
-  .marks h4{margin:0 0 7px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
-  .mrow{display:flex;flex-wrap:wrap;gap:5px}
-  .mark{border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit;
-    font-size:11.5px;padding:4px 9px;cursor:pointer;display:flex;gap:7px;align-items:baseline}
-  .mark:hover{border-color:var(--accent)}
-  .mark .t{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums}
-  .mark .tool{font-weight:600}
+  /* ---- one action timeline, grouped by tab ----
+     A "segment" is our word, not the reader's. They know tabs and they know
+     actions; the grouping shows which actions happened in which tab without
+     ever naming the concept. */
+  .tl{display:flex;gap:0;overflow-x:auto;padding:2px 0 10px;align-items:stretch}
+  .tlgroup{flex:0 0 auto;display:flex;flex-direction:column;gap:6px;padding:8px 12px;border-radius:9px;
+    border:1px solid transparent}
+  .tlgroup + .tlgroup{margin-left:6px;border-left:1px dashed var(--line);padding-left:16px}
+  .tlgroup[data-active="true"]{background:var(--bg);border-color:var(--line)}
+  .tlhead{display:flex;gap:7px;align-items:baseline;white-space:nowrap}
+  .tlhead .site{font-weight:600;font-size:12px}
+  .tlhead .tabid{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--muted)}
+  .tlgroup[data-active="true"] .tlhead .site{color:var(--accent)}
+  .tlacts{display:flex;gap:5px}
+  .act{border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink);font:inherit;
+    font-size:11.5px;padding:5px 9px;cursor:pointer;display:flex;gap:7px;align-items:baseline;white-space:nowrap}
+  .act:hover{border-color:var(--accent)}
+  .act[aria-current="true"]{border-color:var(--accent);background:var(--accent);color:#fff}
+  .act[aria-current="true"] .t{color:#fff;opacity:.85}
+  .act .t{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .act .tool{font-weight:600}
 
   /* ---- session transport: ONE scrubber across every tab ---- */
   .transport{display:flex;align-items:center;gap:10px;margin:0 0 10px;padding:9px 11px;
@@ -110,11 +112,7 @@
         <span class="url" id="segUrl"></span>
         <span class="badge" id="segBadge" hidden></span>
       </div>
-      <div class="segs" id="segs"></div>
-      <div class="marks" id="marks" hidden>
-        <h4>Actions in this segment — click to jump</h4>
-        <div class="mrow" id="mrow"></div>
-      </div>
+      <div class="tl" id="timeline"></div>
       <div class="transport" id="transport" hidden>
         <button id="playBtn" class="play" type="button" aria-label="Play">▶</button>
         <span class="tnow" id="tNow">0:00</span>
@@ -169,28 +167,42 @@ function fmtWhen(t) {
   return new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
+function siteOf(url) {
+  try { return new URL(url).host; } catch { return ""; }
+}
+
+// The journey IS the identity. "client 1" means nothing on its own, and every
+// capture of the same page shares a title, so the list showed four rows reading
+// "untouched". The sequence of sites a session visited is what a reviewer
+// actually recognises it by.
+function journeyOf(payload) {
+  const hops = [];
+  for (const seg of payload.segments || []) {
+    const st = payload.streams[seg.streamId];
+    const site = siteOf(st && st.url) || `tab ${seg.tabId}`;
+    if (hops[hops.length - 1] !== site) hops.push(site);
+  }
+  return hops;
+}
+
 function renderSessions() {
   const host = $("slist");
   host.innerHTML = "";
   DATA.sessions.forEach((p, i) => {
-    const s = p.session, segs = p.segments || [];
-    const firstStream = segs.length ? p.streams[segs[0].streamId] : null;
+    const s = p.session;
+    const segs = p.segments || [];
+    const hops = journeyOf(p);
+    const tabs = new Set(segs.map((x) => x.tabId)).size;
     const b = document.createElement("button");
     b.className = "sitem";
     b.setAttribute("aria-current", String(i === 0));
     b.innerHTML =
-      `<span class="id">client ${s.clientId}</span>` +
+      `<span class="id">Claude session ${s.clientId}</span>` +
       `<span class="ttl"></span>` +
-      `<span class="meta">${segs.length} segment${segs.length === 1 ? "" : "s"} · ` +
-      `${(s.actions || []).length} actions · ${fmtWhen(s.startedAt)}</span>`;
-    // "untouched" or "New Tab" identifies nothing; the host does.
-    let label = (firstStream && firstStream.title) || "";
-    const site = (() => {
-      try { return new URL(firstStream.url).host; } catch { return ""; }
-    })();
-    if (!label || label.length < 4) label = site || s.sessionId;
-    else if (site) label = `${label} — ${site}`;
-    b.querySelector(".ttl").textContent = label;
+      `<span class="meta">${(s.actions || []).length} actions · ` +
+      `${tabs} tab${tabs === 1 ? "" : "s"} · ${fmtWhen(s.startedAt)}</span>`;
+    b.querySelector(".ttl").textContent = hops.length ? hops.join(" → ") : "(nothing recorded)";
+    b.title = s.sessionId;
     b.onclick = () => selectSession(i);
     host.appendChild(b);
   });
@@ -199,27 +211,7 @@ function renderSessions() {
 function selectSession(i) {
   cur.session = DATA.sessions[i];
   [...$("slist").children].forEach((c, j) => c.setAttribute("aria-current", String(i === j)));
-  renderSegments();
   buildTimeline();
-}
-
-function renderSegments() {
-  const host = $("segs");
-  host.innerHTML = "";
-  const { segments, streams } = cur.session;
-  if (!segments.length) { host.innerHTML = '<span class="empty">No recorded segments.</span>'; return; }
-  segments.forEach((seg, i) => {
-    const st = streams[seg.streamId];
-    const b = document.createElement("button");
-    b.className = "seg";
-    b.innerHTML =
-      `<span class="n">${String(i + 1).padStart(2, "0")}</span>` +
-      `<span class="tab">tab ${seg.tabId}</span>` +
-      `<span class="cnt">${seg.actions.length} action${seg.actions.length === 1 ? "" : "s"} · ${fmtClock(seg.tEnd - seg.tStart)}</span>`;
-    b.title = (st && st.url) || seg.streamId;
-    b.onclick = () => selectSegment(i);
-    host.appendChild(b);
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -235,7 +227,7 @@ function renderSegments() {
 // agent spent in ANOTHER tab, already shown by that tab's own segment, so
 // replaying them as a frozen screen would be showing nothing twice.
 const LEAD_IN_MS = 1000;   // a beat before the first action, for context
-const LEAD_OUT_MS = 2500;  // and the aftermath of the last one
+const LEAD_OUT_MS = 3000;  // and the aftermath of the last one, so it is actually seen
 
 let T = { spans: [], total: 0, t: 0, playing: false, timer: null, mounted: -1 };
 
@@ -248,12 +240,21 @@ function buildTimeline() {
     if (!st || !st.events || st.events.length < 2) return;
     const first = st.events[0].timestamp;
     const last = st.events[st.events.length - 1].timestamp;
-    // Clamp the window to what the stream actually holds, so we never ask the
-    // player to seek past its own end.
     const winStart = Math.max(first, seg.tStart - LEAD_IN_MS);
-    const winEnd = Math.min(last, Math.max(seg.tEnd + LEAD_OUT_MS, winStart + 1200));
-    const dur = Math.max(600, winEnd - winStart);
-    T.spans.push({ segIndex: i, streamId: seg.streamId, tabId: seg.tabId, first, winStart, dur, g0: acc });
+    // Do NOT clamp the window to the stream's last event. rrweb stops emitting
+    // the moment a page goes quiet, so the final event can land milliseconds
+    // after the last action — clamping there cut the action's own aftermath
+    // off, and a scroll snapped away to the next tab just as it began. The
+    // window runs past the events; the SEEK is what gets clamped, below, so the
+    // replay simply holds its final frame for the remainder.
+    const winEnd = Math.max(seg.tEnd + LEAD_OUT_MS, winStart + 1500);
+    const dur = Math.max(900, winEnd - winStart);
+    T.spans.push({
+      segIndex: i, streamId: seg.streamId, tabId: seg.tabId,
+      first, last, streamDur: Math.max(0, last - first), winStart, dur, g0: acc,
+      site: siteOf(st.url) || `tab ${seg.tabId}`,
+      actions: seg.actions
+    });
     acc += dur;
   });
   T.total = acc;
@@ -262,6 +263,7 @@ function buildTimeline() {
   $("transport").hidden = T.spans.length === 0;
   $("tTotal").textContent = fmtClock(T.total);
   $("scrub").max = String(Math.max(1, Math.round(T.total)));
+  renderTimeline();
   renderAt(0);
 }
 
@@ -281,11 +283,69 @@ function renderAt(t, { play = false } = {}) {
     T.mounted = i;
     selectSegment(sp.segIndex, { fromTimeline: true });
   }
-  const localOffset = sp.winStart - sp.first + (T.t - sp.g0);
+  // Clamp into the stream: past its end the player holds the final frame,
+  // which is what makes the lead-out above possible.
+  const localOffset = Math.min(sp.winStart - sp.first + (T.t - sp.g0), sp.streamDur);
   seekTo(localOffset, play);
   $("scrub").value = String(Math.round(T.t));
   $("tNow").textContent = fmtClock(T.t);
-  $("nowTab").textContent = `tab ${sp.tabId}`;
+  $("nowTab").textContent = sp.site;
+  highlight(i);
+}
+
+// Global time of an action, so every chip reads on the ONE session clock the
+// scrubber shows rather than an offset into whichever stream it came from.
+function globalTimeOf(sp, a) {
+  return Math.max(sp.g0, Math.min(sp.g0 + sp.dur, sp.g0 + (a.t - sp.winStart)));
+}
+
+function renderTimeline() {
+  const host = $("timeline");
+  host.innerHTML = "";
+  if (!T.spans.length) {
+    host.innerHTML = '<span class="empty">Nothing was recorded in this session.</span>';
+    return;
+  }
+  T.spans.forEach((sp, i) => {
+    const g = document.createElement("div");
+    g.className = "tlgroup";
+    g.dataset.span = String(i);
+    const head = document.createElement("div");
+    head.className = "tlhead";
+    head.innerHTML = `<span class="site"></span><span class="tabid">tab ${sp.tabId}</span>`;
+    head.querySelector(".site").textContent = sp.site;
+    const acts = document.createElement("div");
+    acts.className = "tlacts";
+    sp.actions.forEach((a) => {
+      const gt = globalTimeOf(sp, a);
+      const b = document.createElement("button");
+      b.className = "act";
+      b.dataset.g = String(gt);
+      b.innerHTML = `<span class="t">${fmtClock(gt)}</span><span class="tool"></span>`;
+      b.querySelector(".tool").textContent = a.action ? `${a.tool}.${a.action}` : a.tool;
+      b.title = a.detail || "";
+      // Land a beat before the action, so it is seen in context rather than as
+      // a jump-cut to its aftermath.
+      b.onclick = () => { setPlaying(false); renderAt(Math.max(sp.g0, gt - 1200)); };
+      acts.appendChild(b);
+    });
+    g.appendChild(head);
+    g.appendChild(acts);
+    host.appendChild(g);
+  });
+}
+
+// Follow playback: light the group being played and the action last passed.
+function highlight(spanIndex) {
+  const groups = [...$("timeline").querySelectorAll(".tlgroup")];
+  groups.forEach((g, j) => g.setAttribute("data-active", String(j === spanIndex)));
+  const all = [...$("timeline").querySelectorAll(".act")];
+  let active = -1;
+  all.forEach((b, j) => { if (Number(b.dataset.g) <= T.t + 250) active = j; });
+  all.forEach((b, j) => b.setAttribute("aria-current", String(j === active)));
+  if (active >= 0 && all[active]) {
+    all[active].scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
 }
 
 function setPlaying(on) {
@@ -326,7 +386,6 @@ function setPlaying(on) {
 function selectSegment(i, opts = {}) {
   const { segments, streams } = cur.session;
   cur.segIndex = i;
-  [...$("segs").children].forEach((c, j) => c.setAttribute && c.setAttribute("aria-current", String(i === j)));
   const seg = segments[i];
   if (!seg) return;
   const st = streams[seg.streamId];
@@ -339,11 +398,6 @@ function selectSegment(i, opts = {}) {
   else badge.hidden = true;
 
   mountPlayer(st, seg);
-  renderMarks(st, seg);
-  if (!opts.fromTimeline) {
-    const sp = T.spans.find((x) => x.segIndex === i);
-    if (sp) { T.mounted = T.spans.indexOf(sp); renderAt(sp.g0); }
-  }
 }
 
 function mountPlayer(stream, seg) {
@@ -380,39 +434,6 @@ function mountPlayer(stream, seg) {
 function seekTo(offsetMs, play = false) {
   if (!cur.player) return;
   try { cur.player.goto(Math.max(0, offsetMs), play); } catch {}
-}
-
-function renderMarks(stream, seg) {
-  const wrap = $("marks"), row = $("mrow");
-  row.innerHTML = "";
-  if (!stream || !stream.events.length) { wrap.hidden = true; return; }
-  const t0 = stream.events[0].timestamp;
-  wrap.hidden = false;
-  seg.actions.forEach((a) => {
-    const b = document.createElement("button");
-    b.className = "mark";
-    b.innerHTML = `<span class="t">${fmtClock(a.t - t0)}</span><span class="tool"></span>`;
-    b.querySelector(".tool").textContent = a.action ? `${a.tool}.${a.action}` : a.tool;
-    b.title = a.detail || "";
-    // Land a beat BEFORE the action so the click is seen in context rather
-    // than as a jump-cut to its aftermath.
-    b.onclick = () => {
-      setPlaying(false);
-      const sp = T.spans.find((x) => x.segIndex === cur.segIndex);
-      if (sp) renderAt(sp.g0 + (a.t - 1500 - sp.winStart));
-      else seekTo(a.t - t0 - 1500);
-    };
-    row.appendChild(b);
-  });
-}
-
-$("tab-audits").onclick = () => switchTab(true);
-$("tab-recordings").onclick = () => switchTab(false);
-function switchTab(audits) {
-  $("tab-audits").setAttribute("aria-selected", String(audits));
-  $("tab-recordings").setAttribute("aria-selected", String(!audits));
-  $("pane-audits").hidden = !audits;
-  $("pane-recordings").hidden = audits;
 }
 
 $("playBtn").onclick = () => setPlaying(!T.playing);
