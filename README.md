@@ -600,6 +600,35 @@ pkill -f "node.*mcp-server"
 # /mcp
 ```
 
+## Running in a dedicated browser (optional)
+
+The extension holds `debugger` and `<all_urls>`, so loading it into your everyday
+profile exposes every logged-in tab. To keep it isolated, run a separate browser
+with its own profile. Two things differ from the normal install:
+
+- **Branded Chrome 137+ ignores `--load-extension`.** Use Chrome for Testing or
+  Chromium instead, where the flag still works.
+- **A custom `--user-data-dir` reads native messaging manifests from
+  `<user-data-dir>/NativeMessagingHosts/`**, not from
+  `~/Library/Application Support/.../NativeMessagingHosts/`. Copy the manifest
+  `install.sh` wrote into that folder.
+
+From the repo root (macOS paths shown):
+
+```bash
+PROFILE="$PWD/.chrome-profile"
+mkdir -p "$PROFILE/NativeMessagingHosts"
+# the manifest install.sh wrote for Google Chrome
+cp ~/Library/Application\ Support/Google/Chrome/NativeMessagingHosts/com.anthropic.open_claude_in_chrome.json \
+   "$PROFILE/NativeMessagingHosts/"
+"/path/to/Google Chrome for Testing" --user-data-dir="$PROFILE" \
+  --load-extension="$PWD/extension" --no-first-run
+```
+
+The extension ID is derived from the `extension/` path, so if you haven't loaded it
+anywhere yet, load it once in this browser via `chrome://extensions` to read the ID,
+then run `./install.sh <id>` before copying.
+
 ## Multiple Sessions
 
 Multiple Claude Code sessions can share the same browser extension. The first session becomes the "primary" (owns the TCP port), and subsequent sessions connect as clients through the primary. All sessions can use the browser simultaneously.
@@ -651,6 +680,21 @@ process holds nothing anyone needs.
 
 If tools still fail, the browser side is the place to look — see "Browser
 extension is not connected" above.
+
+### Native host never connects: "Operation not permitted" (macOS)
+
+If the repo lives under `~/Documents`, `~/Desktop` or `~/Downloads`, macOS privacy
+protection blocks the browser from running the native host, and it may do so
+without showing a permission prompt. The extension simply never connects, and the
+browser's stderr shows:
+
+```
+/bin/sh: .../host/native-host-wrapper.sh: Operation not permitted
+```
+
+Move the repo somewhere unprotected (e.g. `~/.local/share/open-claude-in-chrome`),
+load the unpacked extension again from the new path (the extension ID is derived from
+the path, so it changes), and re-run `./install.sh <new-id>`.
 
 ### Changing the rendezvous
 
