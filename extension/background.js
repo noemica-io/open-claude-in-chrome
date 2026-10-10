@@ -664,15 +664,29 @@ async function takeScreenshot(tabId) {
   // itself: clip to the viewport and scale by 1/ratio, which yields an image
   // whose pixels ARE CSS pixels. Emulation would also achieve this, but at the
   // cost of freezing the viewport (see ensureAttached).
+  //
+  // The clip's x/y are PAGE coordinates, not viewport ones. For the capture,
+  // Chrome installs a temporary viewport override that draws the document from
+  // (x, y), adding the current scroll offset back in (Blink's DevToolsEmulator
+  // translates by -clip + scroll). A clip at 0,0 was therefore only right at the
+  // top of the page: scrolled down by S, the image came back shifted down by S
+  // under a blank band, and wholly blank once S passed the viewport height. The
+  // override is also drawn to the real window for the moment of the capture, so
+  // every scroll (which ends in a screenshot) made the page flash to that
+  // shifted frame. Clipping at the visual viewport's page offset makes the
+  // override draw exactly what is already on screen.
   let clip = null;
   try {
     const vp = await cdp(tabId, "Runtime.evaluate", {
-      expression: "JSON.stringify([innerWidth, innerHeight, devicePixelRatio])",
+      expression:
+        "(() => { const v = window.visualViewport;" +
+        " return JSON.stringify([innerWidth, innerHeight, devicePixelRatio," +
+        " v ? v.pageLeft : scrollX, v ? v.pageTop : scrollY]); })()",
       returnByValue: true
     });
-    const [vw, vh, dpr] = JSON.parse(vp.result.value);
+    const [vw, vh, dpr, px, py] = JSON.parse(vp.result.value);
     if (vw > 0 && vh > 0) {
-      clip = { x: 0, y: 0, width: vw, height: vh, scale: 1 / (dpr > 0 ? dpr : 1) };
+      clip = { x: px || 0, y: py || 0, width: vw, height: vh, scale: 1 / (dpr > 0 ? dpr : 1) };
     }
   } catch {}
 
@@ -696,7 +710,7 @@ async function takeScreenshot(tabId) {
   // this image is trusting every one of those.
   dbg(
     "cdp",
-    `screenshot ${clip ? `${clip.width}x${clip.height} CSS px, dpr ${Math.round((1 / clip.scale) * 100) / 100}, clip scale ${Math.round(clip.scale * 1000) / 1000}` : "NO CLIP — image is in device pixels, not CSS pixels"}` +
+    `screenshot ${clip ? `${clip.width}x${clip.height} CSS px at page (${Math.round(clip.x)},${Math.round(clip.y)}), dpr ${Math.round((1 / clip.scale) * 100) / 100}, clip scale ${Math.round(clip.scale * 1000) / 1000}` : "NO CLIP — image is in device pixels, not CSS pixels"}` +
       ` -> ${Math.round((base64.length * 3) / 4 / 1024)}KB${base64.length > 350000 ? " (after quality retry)" : ""}`,
     { tab: tabId }
   );
