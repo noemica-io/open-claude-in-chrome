@@ -566,10 +566,36 @@
     return {
       x,
       y,
+      // The whole box, not just its centre, so a humanized click can land
+      // somewhere inside it. A plain object: a DOMRect does not survive
+      // extension messaging intact.
+      rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
       reachable: x >= 0 && y >= 0 && x < window.innerWidth && y < window.innerHeight,
       covering,
       scrolledFrom,
     };
+  }
+
+  // Does a point land on this ref's element itself (or something inside it)?
+  // Stricter than the covering test above, which also accepts an ancestor: that
+  // is right for the centre, but a sampled off-centre point that falls in the
+  // gap between the lines of a wrapped link hits the paragraph, not the link.
+  // The caller falls back to the centre whenever this says no.
+  function refOwnsPoint(refId, x, y) {
+    const el = resolveRef(refId);
+    if (!el) return false;
+    if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) return false;
+    // Shadow DOM: elementFromPoint stops at the host, so check each level on
+    // the way in — landing on the host or on anything in its tree counts.
+    let node = document.elementFromPoint(x, y);
+    for (let depth = 0; node && depth < 5; depth++) {
+      if (node === el || el.contains(node)) return true;
+      if (!node.shadowRoot) break;
+      const inner = node.shadowRoot.elementFromPoint(x, y);
+      if (!inner || inner === node) break;
+      node = inner;
+    }
+    return false;
   }
 
   function describeBrief(el) {
@@ -619,6 +645,11 @@
       return true;
     }
 
+    if (msg.type === "refOwnsPoint") {
+      sendResponse({ result: refOwnsPoint(msg.ref, msg.x, msg.y) });
+      return true;
+    }
+
     // Resolve a ref in THIS (isolated) world — where resolveRef/elementMap live —
     // and stamp a DOM attribute on the element so the background page can find it
     // via CDP. CDP Runtime.evaluate runs in the page's MAIN world and cannot see
@@ -662,6 +693,7 @@
     findElements,
     setFormValue,
     getRefCoordinates,
+    refOwnsPoint,
     resolveRef,
     elementMap,
   };

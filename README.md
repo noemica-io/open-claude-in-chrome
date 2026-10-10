@@ -463,9 +463,9 @@ scroll arrives as one jump. That is efficient, and it looks nothing like a
 person.
 
 Turn `humanize` on and input is driven the way a hand drives it — curved cursor
-paths with acceleration and overshoot, clicks that land off-centre with a real
-press dwell, scrolls decomposed into momentum ticks, and typing with
-human-shaped inter-key timing:
+paths with acceleration and overshoot, clicks on an element (by `ref`) that land
+off-centre inside it with a real press dwell, the cursor travelling to where a
+scroll happens, and typing with human-shaped inter-key timing:
 
 ```
 set_config({ key: "humanize", value: true })
@@ -476,6 +476,13 @@ events with it off and 41 with it on** (2 vs 39 distinct points) — while click
 mousedowns and mouseups come out identical. That is the guarantee: randomisation
 changes *where inside a target* you land, *how* the cursor gets there, and
 *when* — never *what happens*. Same element, same text, same scroll position.
+
+Two deliberate limits follow from that guarantee. A click by `coordinate` lands
+exactly on the point you gave, since only a `ref` says which element the point
+may move around inside — and an off-centre point is re-tested first, falling
+back to the centre if anything else is there. And the scroll itself stays a
+single wheel event: splitting it into ticks let nested scrollables steal part
+of the distance, so only the cursor's approach to the scroll is humanized.
 
 Realism costs wall-clock, so the time affordance is a setting:
 

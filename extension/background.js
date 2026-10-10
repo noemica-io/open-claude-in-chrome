@@ -643,6 +643,43 @@ async function resolveRefToCoordinates(tabId, ref, opts = {}) {
   return resp?.result || null;
 }
 
+// Where a pointer action on a resolved ref should land. Resolution yields the
+// element's exact centre, and with humanize off that is still the answer. With
+// it on, clicks and hovers land at a point sampled inside the element's box
+// (humanize/cursor.js sampleInBox): a person never hits the same pixel twice,
+// let alone dead-centre every time, and a run of clicks that all do is a
+// machine signature. Scroll and drag keep their exact points — a scroll's
+// position is not a landing point, and drag endpoints are the caller's own.
+//
+// The sampled point is re-tested in the page before it is used. If anything
+// other than the element itself is there — an overlay across part of it, the
+// gap between the lines of a wrapped link, the viewport edge — this falls back
+// to the centre, which resolution already tested: randomisation may change
+// WHERE inside the target we land, never WHAT receives the action. A covered
+// centre is kept as it is, so the reported interception still describes what
+// a person clicking there would hit.
+//
+// Returns { coordinate, targetSize }; targetSize feeds the movement time
+// (Fitts), which otherwise assumes a 24px target for everything.
+async function refLandingPoint(tabId, ref, action, res) {
+  const centre = { coordinate: [res.x, res.y] };
+  const POINTER_ACTIONS = ["left_click", "right_click", "double_click", "triple_click", "hover"];
+  if (!POINTER_ACTIONS.includes(action) || !res.rect || !(await humanizeOn(tabId))) return centre;
+  const targetSize = Math.min(res.rect.width, res.rect.height);
+  if (res.covering) return { ...centre, targetSize };
+  const cfg = effectiveConfig(tabId);
+  const s = human(cfg.humanize_speed, cfg.humanize_seed);
+  const p = humanize.sampleInBox(res.rect, s.rng, s.persona);
+  if (!p) return { ...centre, targetSize };
+  const owns = await sendContentMessage(tabId, { type: "refOwnsPoint", ref, x: p.x, y: p.y }).catch(() => null);
+  if (!owns?.result) {
+    dbg("hit", `${ref} sampled (${p.x},${p.y}) is not on the element — landing on its centre (${res.x},${res.y})`, { tab: tabId });
+    return { ...centre, targetSize };
+  }
+  dbg("hit", `${ref} lands at (${p.x},${p.y}), offset (${p.x - res.x},${p.y - res.y}) from its centre`, { tab: tabId });
+  return { coordinate: [p.x, p.y], targetSize };
+}
+
 // --- Screenshot helper ---
 // Cap viewport to 1280x800 for screenshots to keep size manageable.
 // Retina displays produce 2x+ resolution PNGs that blow up base64 size.
@@ -875,9 +912,11 @@ const TAB_CONFIG_KEY = "ocic_tab_config_v1"; // { [tabId]: {...} } in session
 const CONFIG_SCHEMA = {
   humanize:
     "Drive mouse and keyboard the way a person would: curved cursor paths with " +
-    "acceleration and overshoot, clicks that land off-centre inside the target " +
-    "with a real press dwell, scrolls decomposed into momentum ticks, and typing " +
-    "with per-character keydown/keyup and human inter-key timing. Outcomes are " +
+    "acceleration and overshoot, clicks on an element (by ref) that land " +
+    "off-centre inside it with a real press dwell, the cursor travelling to a " +
+    "scroll's position before the wheel turns (the scroll itself stays one wheel " +
+    "event), and typing with per-character keydown/keyup and human inter-key " +
+    "timing. Clicks by coordinate land exactly where asked. Outcomes are " +
     "identical (same element, same text, same scroll position) — only the motion " +
     "and timing change, so actions take noticeably longer. Default false.",
   humanize_speed:
@@ -1396,13 +1435,14 @@ const toolHandlers = {
     // screen has coordinates no dispatch can reach, and the click would land on
     // the document root instead of the thing that was named.
     let refCovering = null;
+    let targetSize;
     if (args.ref && !coordinate) {
       const res = await resolveRefToCoordinates(tabId, args.ref);
       if (!res) return { content: [{ type: "text", text: `Could not resolve ref "${args.ref}" to coordinates. The page may have changed — re-run read_page or find for a fresh ref.` }] };
       if (!res.reachable) {
         return { content: [{ type: "text", text: `Could not bring ref "${args.ref}" into view — it is still outside the viewport after scrolling, so a click there would land on the page background rather than the element. It may be inside a container that needs scrolling separately, or hidden.` }] };
       }
-      coordinate = [res.x, res.y];
+      ({ coordinate, targetSize } = await refLandingPoint(tabId, args.ref, action, res));
       refCovering = res.covering;
       if (res.scrolledFrom) {
         // The coordinates just changed underneath the caller. Recording it is
@@ -1477,7 +1517,7 @@ const toolHandlers = {
 
       case "left_click": {
         if (!coordinate) return { content: [{ type: "text", text: "coordinate is required for left_click" }] };
-        await mouseClick(tabId, coordinate[0], coordinate[1], { modifiers });
+        await mouseClick(tabId, coordinate[0], coordinate[1], { modifiers, targetSize });
         return { content: [{ type: "text", text: `Clicked at (${coordinate[0]}, ${coordinate[1]})${hitNote}` }] };
       }
 
@@ -1506,19 +1546,19 @@ const toolHandlers = {
 
       case "right_click": {
         if (!coordinate) return { content: [{ type: "text", text: "coordinate is required for right_click" }] };
-        await mouseClick(tabId, coordinate[0], coordinate[1], { button: "right", modifiers });
+        await mouseClick(tabId, coordinate[0], coordinate[1], { button: "right", modifiers, targetSize });
         return { content: [{ type: "text", text: `Right-clicked at (${coordinate[0]}, ${coordinate[1]})${hitNote}` }] };
       }
 
       case "double_click": {
         if (!coordinate) return { content: [{ type: "text", text: "coordinate is required for double_click" }] };
-        await mouseClick(tabId, coordinate[0], coordinate[1], { clickCount: 2, modifiers });
+        await mouseClick(tabId, coordinate[0], coordinate[1], { clickCount: 2, modifiers, targetSize });
         return { content: [{ type: "text", text: `Double-clicked at (${coordinate[0]}, ${coordinate[1]})${hitNote}` }] };
       }
 
       case "triple_click": {
         if (!coordinate) return { content: [{ type: "text", text: "coordinate is required for triple_click" }] };
-        await mouseClick(tabId, coordinate[0], coordinate[1], { clickCount: 3, modifiers });
+        await mouseClick(tabId, coordinate[0], coordinate[1], { clickCount: 3, modifiers, targetSize });
         return { content: [{ type: "text", text: `Triple-clicked at (${coordinate[0]}, ${coordinate[1]})${hitNote}` }] };
       }
 
@@ -1530,7 +1570,7 @@ const toolHandlers = {
           // can cross the boundary, fire mouseleave and dismiss it.
           const s = human(effectiveConfig(tabId).humanize_speed, effectiveConfig(tabId).humanize_seed);
           const from = cursorByTab.get(tabId) || { x: Math.max(0, coordinate[0] - 200), y: Math.max(0, coordinate[1] - 150) };
-          await dispatchPlan(tabId, humanize.planHover(s, from, { x: coordinate[0], y: coordinate[1] }), modifiers);
+          await dispatchPlan(tabId, humanize.planHover(s, from, { x: coordinate[0], y: coordinate[1] }, { targetSize }), modifiers);
           return { content: [{ type: "text", text: `Hovered at (${coordinate[0]}, ${coordinate[1]})${hitNote}` }] };
         }
         await dispatchMouse(tabId, "mouseMoved", coordinate[0], coordinate[1], { modifiers });
