@@ -643,6 +643,83 @@ async function resolveRefToCoordinates(tabId, ref, opts = {}) {
   return resp?.result || null;
 }
 
+// --- Wheel a ref into view (humanize) ---
+//
+// What a person does with an element below the fold: put the cursor over the
+// page, roll the wheel a few notches, look, roll again. The alternative is
+// scrollIntoView, which teleports the page — thousands of pixels between two
+// frames, with no wheel event behind it — the most mechanical thing a
+// humanized session still did.
+//
+// Run in rounds, each one re-planned from where things actually ended up:
+// the page side (refWheelPlan in content.js) names the scroller, direction,
+// notch count and a point whose path is clear of nested scrollers; this side
+// moves the cursor there if it isn't already, wheels, waits for the scroll to
+// settle, and measures how far one notch really went, so the next round is
+// planned in the page's own units instead of an assumed pixel scale. The
+// outcome is checked, not predicted, which is what the two earlier attempts
+// at humanized scrolling lacked (see the note in humanize/index.js).
+//
+// Anything unexpected — no clear point, a page that doesn't move, too far to
+// wheel in reasonable time — returns ok:false and the caller falls back to
+// the instant jump, so a ref that resolved before still resolves.
+const WHEEL_MAX_ROUNDS = 10;
+const WHEEL_MAX_NOTCHES = 80;
+
+async function wheelRefIntoView(tabId, ref) {
+  const cfg = effectiveConfig(tabId);
+  const s = human(cfg.humanize_speed, cfg.humanize_seed);
+  let perNotch = 100;
+  let notches = 0;
+  for (let round = 0; round < WHEEL_MAX_ROUNDS; round++) {
+    const { aim, spots } = humanize.wheelAim(s);
+    const cursor = cursorByTab.get(tabId) || null;
+    const plan = (await sendContentMessage(tabId, { type: "refWheelPlan", ref, cursor, perNotch, aim, spots }))?.result;
+    if (!plan) return { ok: false, notches, rounds: round, why: "ref did not resolve" };
+    if (plan.inView) {
+      // A person finds what they scrolled to before reaching for it.
+      if (notches) await sleep(humanize.thinkDelay(s, 0.6));
+      return { ok: true, notches, rounds: round };
+    }
+    if (!plan.point) return { ok: false, notches, rounds: round, why: plan.why };
+    if (notches + plan.needed > WHEEL_MAX_NOTCHES) {
+      return { ok: false, notches, rounds: round, why: `too far to wheel (${notches + plan.needed} notches)` };
+    }
+    const at = plan.point;
+    if (!cursor || cursor.x !== at.x || cursor.y !== at.y) {
+      const from = cursor || { x: Math.max(0, at.x - 220), y: Math.max(0, at.y - 160) };
+      await dispatchPlan(tabId, humanize.planHover(s, from, at));
+    }
+    await dispatchPlan(tabId, humanize.planWheel(s, at, plan.notches, plan.dir));
+    notches += plan.notches;
+    const after = await settleRef(tabId, ref, plan.centre);
+    if (!after) return { ok: false, notches, rounds: round + 1, why: "ref lost while scrolling" };
+    const moved = Math.abs(after.y - plan.centre[1]);
+    dbg("hit", `${ref} wheel round ${round + 1}: ${plan.dir > 0 ? "down" : "up"} ${plan.notches} on ${plan.scroller} at (${at.x},${at.y}), moved ${Math.round(moved)}px`, { tab: tabId });
+    if (moved < 8) return { ok: false, notches, rounds: round + 1, why: "page did not scroll" };
+    perNotch = Math.min(400, Math.max(20, moved / plan.notches));
+  }
+  return { ok: false, notches, rounds: WHEEL_MAX_ROUNDS, why: `still not in view after ${WHEEL_MAX_ROUNDS} rounds` };
+}
+
+// Wheel events are dispatched without waiting for acks, and the page animates
+// each one, so poll until the element stops moving. Two equal readings in a
+// row count as settled only once it has moved or enough time has passed for
+// the scroll to have started — otherwise the readings taken before the first
+// wheel event lands would look settled.
+async function settleRef(tabId, ref, startCentre) {
+  let last = null;
+  for (let i = 0; i < 14; i++) {
+    await sleep(60);
+    const r = await resolveRefToCoordinates(tabId, ref, { scrollIntoView: false }).catch(() => null);
+    if (!r) return last;
+    const moved = r.x !== startCentre[0] || r.y !== startCentre[1];
+    if (last && r.x === last.x && r.y === last.y && (moved || i >= 5)) return r;
+    last = r;
+  }
+  return last;
+}
+
 // --- Screenshot helper ---
 // Cap viewport to 1280x800 for screenshots to keep size manageable.
 // Retina displays produce 2x+ resolution PNGs that blow up base64 size.
@@ -1397,7 +1474,18 @@ const toolHandlers = {
     // the document root instead of the thing that was named.
     let refCovering = null;
     if (args.ref && !coordinate) {
-      const res = await resolveRefToCoordinates(tabId, args.ref);
+      // Humanized, an off-screen ref is wheeled into view instead (see
+      // wheelRefIntoView); the jump is only the fallback when that gives up.
+      let wheeled = null;
+      if (await humanizeOn(tabId)) {
+        wheeled = await wheelRefIntoView(tabId, args.ref).catch((e) => ({ ok: false, notches: 0, why: e.message }));
+        if (!wheeled.ok) {
+          dbg("hit", `${args.ref} not wheeled into view (${wheeled.why}) after ${wheeled.notches} notches — jumping instead`, { tab: tabId });
+        } else if (wheeled.notches) {
+          dbg("hit", `${args.ref} wheeled into view: ${wheeled.notches} notches in ${wheeled.rounds} rounds`, { tab: tabId });
+        }
+      }
+      const res = await resolveRefToCoordinates(tabId, args.ref, { scrollIntoView: !wheeled?.ok });
       if (!res) return { content: [{ type: "text", text: `Could not resolve ref "${args.ref}" to coordinates. The page may have changed — re-run read_page or find for a fresh ref.` }] };
       if (!res.reachable) {
         return { content: [{ type: "text", text: `Could not bring ref "${args.ref}" into view — it is still outside the viewport after scrolling, so a click there would land on the page background rather than the element. It may be inside a container that needs scrolling separately, or hidden.` }] };
@@ -1688,21 +1776,20 @@ const toolHandlers = {
 
       case "scroll_to": {
         if (!coordinate && !args.ref) return { content: [{ type: "text", text: "coordinate or ref is required for scroll_to" }] };
-        if (args.ref) {
-          await sendContentMessage(tabId, {
-            type: "scrollToRef",
-            ref: args.ref,
-          });
-        }
-        // Scroll target element into view via JS
-        if (coordinate) {
+        // By ref, the work is already done: resolving the ref above brought it
+        // into view (wheeled with humanize on, an instant jump otherwise), and
+        // `coordinate` now holds its VIEWPORT position. Passing that on to
+        // window.scrollTo as a page offset is what this used to do, and it
+        // threw the page straight back to near the top, away from the element.
+        const byRef = args.ref && !args.coordinate;
+        if (!byRef) {
           await cdp(tabId, "Runtime.evaluate", {
             expression: `window.scrollTo(${coordinate[0]}, ${coordinate[1]})`,
           });
         }
         // Let the page repaint the scroll; Chrome is fast, Brave slower.
         await sleep((await isBrave()) ? 300 : 100);
-        return { content: [{ type: "text", text: `Scrolled to target` }] };
+        return { content: [{ type: "text", text: byRef ? `Scrolled ${args.ref} into view` : `Scrolled to target` }] };
       }
 
       case "wait": {

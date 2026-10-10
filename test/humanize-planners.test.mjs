@@ -1,4 +1,4 @@
-import { createSession, planClick, planHover, planDrag, planType, planKey, sampleInBox } from "../extension/humanize/index.js";
+import { createSession, planClick, planHover, planDrag, planType, planKey, planWheel, wheelAim, sampleInBox } from "../extension/humanize/index.js";
 let fail = 0;
 const ok = (c, m) => { console.log((c ? "  PASS " : "  FAIL ") + m); if (!c) fail++; };
 
@@ -56,10 +56,51 @@ console.log("== deliberate long hold renders OS auto-repeat ==");
 { const s=createSession(9); const plan=planKey(s,{key:"Enter",code:"Enter",keyCode:13});
   ok(plan.filter(p=>p.k==="kdown").length===1 && !plan.some(p=>p.autoRepeat), "a normal press does NOT repeat"); }
 
-// (No scroll invariant here any more: humanized scrolling was removed after
-// two attempts changed where the page landed. The extension now issues the
-// same single wheel event with or without humanization, so scroll equivalence
-// holds by construction rather than by assertion.)
+// (No invariant for the `scroll` action: humanizing it was removed after two
+// attempts changed where the page landed, so it issues the same single wheel
+// event with or without humanization and equivalence holds by construction.
+// planWheel below serves wheeling a ref into view, which checks its outcome.)
+
+console.log("== INVARIANT: planWheel delivers exactly notches x 100, at one point ==");
+{ let exact = true, onePoint = true, noMoves = true;
+  for (let i = 0; i < 200; i++) {
+    const s = createSession(i), at = { x: 300 + i, y: 400 }, n = 1 + (i % 40), dir = i % 2 ? 1 : -1;
+    const plan = planWheel(s, at, n, dir);
+    const w = plan.filter(p => p.k === "wheel");
+    if (w.length !== n || w.reduce((a, p) => a + p.dy, 0) !== n * 100 * dir || w.some(p => p.dx !== 0)) exact = false;
+    if (w.some(p => p.x !== at.x || p.y !== at.y)) onePoint = false;
+    if (plan.some(p => p.k === "move" || p.k === "down" || p.k === "up")) noMoves = false;
+  }
+  ok(exact, "200 plans: one 100-unit event per notch, sum = notches x 100 x dir, no horizontal delta");
+  ok(onePoint, "every wheel event of a plan is at the same point (the cursor never drifts mid-scroll)");
+  ok(noMoves, "no pointer moves or presses inside a wheel plan");
+  ok(planWheel(createSession(1), { x: 1, y: 1 }, 0, 1).length === 0, "zero notches is an empty plan");
+}
+
+console.log("== planWheel timing: quick detents, paused flicks, tier-scaled ==");
+{ const sleeps = (tier) => planWheel(createSession(21, tier), { x: 10, y: 10 }, 60, 1).filter(p => p.k === "sleep").map(p => p.ms);
+  const nat = sleeps("natural"), fst = sleeps("fastest");
+  ok(nat.length === 59, `one gap between each pair of notches (${nat.length} for 60)`);
+  ok(nat.every(ms => ms >= 25 && ms <= 450), `natural: every gap within 25-450ms (${Math.min(...nat)}-${Math.max(...nat)})`);
+  // Flicks are at most 5 detents, each followed by a pause drawn from >= 90ms
+  // at natural, so 60 notches carry at least 11 of them. (Detent gaps can
+  // reach 140ms too, so this is a floor, not an exact count.)
+  const pauses = nat.filter(ms => ms >= 90).length;
+  ok(pauses >= 11 && pauses < 59, `notches come in flicks: ${pauses} pauses >= 90ms among 59 gaps`);
+  ok(fst.every(ms => ms >= 12), `fastest: no gap below the 12ms device floor (min ${Math.min(...fst)}ms)`);
+  const sum = (a) => a.reduce((x, y) => x + y, 0);
+  ok(sum(fst) < sum(nat) / 2, `the fastest tier compresses the same 60 notches (${sum(fst)}ms vs ${sum(nat)}ms natural)`);
+}
+
+console.log("== wheelAim: a target line mid-window and spots inside it ==");
+{ let aimOk = true, spotsOk = true;
+  for (let i = 0; i < 200; i++) { const { aim, spots } = wheelAim(createSession(i));
+    if (aim < 0.35 || aim > 0.6) aimOk = false;
+    if (spots.length !== 16 || spots.some(([fx, fy]) => fx < 0.12 || fx > 0.88 || fy < 0.15 || fy > 0.85)) spotsOk = false; }
+  ok(aimOk, "aim always within 35-60% of the window height");
+  ok(spotsOk, "16 candidate spots, all clear of the window edges");
+  ok(JSON.stringify(wheelAim(createSession(5))) === JSON.stringify(wheelAim(createSession(5))), "seeded: same hand, same intent");
+}
 
 console.log("== sampleInBox stays inside the element ==");
 { let inside=true; const s=createSession(2); const rect={x:100,y:200,width:60,height:24};

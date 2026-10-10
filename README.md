@@ -477,6 +477,14 @@ mousedowns and mouseups come out identical. That is the guarantee: randomisation
 changes *where inside a target* you land, *how* the cursor gets there, and
 *when* — never *what happens*. Same element, same text, same scroll position.
 
+An element that is off screen has to be scrolled to before it can be clicked,
+hovered or `scroll_to`'d. With `humanize` on, that is done with the wheel
+rather than an instant jump: notch-sized wheel events in short flicks, turned at
+a point whose path is clear of nested scrollers and iframes that would catch
+the wheel, and re-measured after every flick. If the wheel can't get it there
+(the page doesn't move, it is too far, or no clear point exists) it falls back
+to the instant jump, so the element still ends up in view.
+
 Realism costs wall-clock, so the time affordance is a setting:
 
 | `humanize_speed` | |

@@ -179,18 +179,69 @@ export function planDrag(s, from, start, end, opts = {}) {
   return plan;
 }
 
-// NOTE: there is deliberately no scroll planner here.
+// NOTE: the `scroll` ACTION deliberately has no planner here.
 //
-// Humanized scrolling was tried twice and abandoned both times, because each
-// attempt changed the OUTCOME, which humanization must never do:
+// Humanizing it was tried twice and abandoned both times, because each attempt
+// changed the OUTCOME, which humanization must never do:
 //   - splitting the scroll into wheel ticks spread over time let the page move
 //     a nested scrollable under the stationary cursor, which then ate the rest
 //     (the page moved 89-109px instead of 400px);
 //   - Input.synthesizeScrollGesture fixed that but measures in literal pixels
 //     while a wheel event's deltaY goes through the browser's own scaling, so
 //     the same request travelled 600px humanized against 400px plain.
-// The extension now issues the identical single wheel event either way and
-// humanizes only the cursor's approach to the scroll position.
+// A `scroll` asks for a DISTANCE, and nothing re-checks it afterwards, so it
+// still issues the identical single wheel event either way and humanizes only
+// the cursor's approach.
+//
+// planWheel below is for a different job — bringing a ref into view — whose
+// outcome is a CONDITION (the element is on screen), not a distance. The
+// background page checks that condition after every flick and re-plans from
+// what actually happened, and it picks a wheel point whose path is clear of
+// nested scrollers before it starts, so neither failure above can change where
+// things end up: at worst it gives up and falls back to the instant jump.
+
+/**
+ * Turn a wheel `notches` times at one point: flicks of a few detents in quick
+ * succession with a short pause between flicks, the way a finger rolls a
+ * wheel. `dir` is +1 (content moves up, i.e. scroll down) or -1. Every notch
+ * is one 100-unit wheel event — the size of a real detent and of one tick of
+ * the `scroll` action — at exactly `at`, so the total delta is always
+ * notches × 100 and the cursor never drifts onto something else mid-scroll.
+ */
+export function planWheel(s, at, notches, dir) {
+  const plan = [];
+  const dy = dir < 0 ? -100 : 100;
+  let left = Math.max(0, Math.round(notches));
+  while (left > 0) {
+    if (plan.length) plan.push({ k: "sleep", ms: t(s, s.rng.delay(170 * s.persona.speed, 1.4, 90, 450)) });
+    const flick = Math.min(left, s.rng.int(2, 5));
+    for (let i = 0; i < flick; i++) {
+      // Within a flick the detents come at the finger's pace. Kept above a
+      // floor after tier scaling: a wheel spun flat out still clicks no
+      // faster than ~12ms a detent, so the fastest tier must not invent a
+      // device that does.
+      if (i > 0) plan.push({ k: "sleep", ms: Math.max(12, t(s, s.rng.delay(55, 1.35, 25, 140))) });
+      plan.push({ k: "wheel", x: at.x, y: at.y, dx: 0, dy });
+    }
+    left -= flick;
+  }
+  return plan;
+}
+
+/**
+ * Where a person aims when wheeling something into view: the line in the
+ * scroller's visible window they want it to land on (`aim`, a fraction of the
+ * window's height), and candidate spots to rest the cursor on while wheeling
+ * (fractions of the window, biased to its middle). The page decides which
+ * spots actually reach the right scroller; this only supplies the intent.
+ */
+export function wheelAim(s, n = 16) {
+  const spots = [];
+  for (let i = 0; i < n; i++) {
+    spots.push([clamp(s.rng.gauss(0.5, 0.16), 0.12, 0.88), clamp(s.rng.gauss(0.5, 0.18), 0.15, 0.85)]);
+  }
+  return { aim: s.rng.uniform(0.35, 0.6), spots };
+}
 
 /**
  * Type text with real key events AND exactly-once insertion.

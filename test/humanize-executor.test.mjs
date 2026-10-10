@@ -85,5 +85,15 @@ const dm = calls.filter(c=>c.fn==="mouse");
 ok(dm.filter(c=>c.type==="mousePressed").length===1, "one press");
 ok(dm.filter(c=>c.type==="mouseReleased")[0].x===300, "release at the exact end point");
 
+console.log("== wheel plan -> one mouseWheel per notch, cursor untouched ==");
+reset();
+cursorByTab.set(4, { x: 500, y: 380 });
+await dispatchPlan(4, humanize.planWheel(s, { x: 500, y: 380 }, 7, -1), 0);
+const wh = calls.filter(c=>c.fn==="mouse");
+ok(wh.length===7 && wh.every(c=>c.type==="mouseWheel"), "7 notches -> exactly 7 mouseWheel events, nothing else");
+ok(wh.every(c=>c.x===500 && c.y===380 && c.deltaX===0 && c.deltaY===-100), "each at the planned point, deltaY -100, no horizontal delta");
+ok(calls.filter(c=>c.fn==="sleep").length===6, "a gap between every pair of notches");
+ok(cursorByTab.get(4).x===500 && cursorByTab.get(4).y===380, "the per-tab cursor stays where the wheel was turned");
+
 console.log(fail===0 ? "\nALL EXECUTOR TESTS PASSED" : `\n${fail} FAILED`);
 process.exit(fail?1:0);

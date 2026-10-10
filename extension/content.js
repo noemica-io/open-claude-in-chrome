@@ -582,6 +582,277 @@
     return `<${el.tagName.toLowerCase()}${id}${cls}>${t ? ` "${t}"` : ""}`;
   }
 
+  // --- Wheeling a ref into view (humanize) ---
+  //
+  // With humanize on, an off-screen ref is brought into view with the wheel
+  // rather than scrollIntoView's instant jump. The background page runs that
+  // in rounds and asks this one question each round: which scroller has to
+  // move, which way, by how many notches, and where can the cursor rest so
+  // the wheel actually reaches that scroller for the whole distance. Nothing
+  // here moves anything.
+  //
+  // "Reaches for the whole distance" is the part that matters. A wheel event
+  // goes to whatever is under the cursor when it fires, and the page is
+  // moving under a parked cursor, so a nested scroller that slides into place
+  // mid-flick takes the rest of the flick — the failure that sank the first
+  // attempt at humanized scrolling. So each candidate point is hit-tested
+  // now, and checked for every scrollable box that will pass under it, and a
+  // round never wheels further than that clearance.
+
+  function composedParent(n) {
+    if (n.assignedSlot) return n.assignedSlot;
+    if (n.parentElement) return n.parentElement;
+    const root = n.getRootNode && n.getRootNode();
+    return root && root.host ? root.host : null;
+  }
+
+  // Scrolls vertically in its own right. The root is handled as the viewport,
+  // and <body>'s overflow belongs to the viewport unless <html> sets its own.
+  function isScrollerY(n, cs) {
+    if (n === document.documentElement) return false;
+    cs = cs || getComputedStyle(n);
+    if (!/^(auto|scroll|overlay)$/.test(cs.overflowY)) return false;
+    if (n === document.body && getComputedStyle(document.documentElement).overflowY === "visible") return false;
+    return n.scrollHeight > n.clientHeight + 1;
+  }
+
+  function rootScrollable() {
+    const html = getComputedStyle(document.documentElement).overflowY;
+    if (/^(hidden|clip)$/.test(html)) return false;
+    if (html === "visible" && document.body && /^(hidden|clip)$/.test(getComputedStyle(document.body).overflowY)) return false;
+    const se = document.scrollingElement || document.documentElement;
+    return se.scrollHeight > se.clientHeight + 1;
+  }
+
+  function roomToScroll(sc, dir) {
+    const n = sc.root ? document.scrollingElement || document.documentElement : sc.node;
+    const max = n.scrollHeight - n.clientHeight;
+    return Math.max(0, dir > 0 ? max - n.scrollTop : n.scrollTop);
+  }
+
+  // A box takes a wheel event for itself (instead of passing it to its
+  // scroller) when it can still move that way, or when overscroll-behavior
+  // stops it handing the leftover on.
+  function eatsWheel(n, dir, cs) {
+    cs = cs || getComputedStyle(n);
+    if (/^(contain|none)$/.test(cs.overscrollBehaviorY)) return true;
+    const max = n.scrollHeight - n.clientHeight;
+    return dir > 0 ? n.scrollTop < max - 1 : n.scrollTop > 1;
+  }
+
+  // A frame we cannot look into might scroll; one we can, only if it does.
+  function frameMayScroll(f) {
+    try {
+      const se = f.contentDocument && f.contentDocument.scrollingElement;
+      if (!se) return true;
+      return se.scrollHeight > se.clientHeight + 1;
+    } catch {
+      return true;
+    }
+  }
+
+  // Innermost first, ending with the viewport. A fixed-position ancestor
+  // takes the element out of the root's reach, so the chain stops there.
+  function scrollChain(el) {
+    const chain = [];
+    for (let n = composedParent(el); n && n !== document.documentElement; n = composedParent(n)) {
+      const cs = getComputedStyle(n);
+      if (isScrollerY(n, cs)) chain.push({ node: n });
+      if (cs.position === "fixed") return chain;
+    }
+    if (getComputedStyle(el).position !== "fixed" && rootScrollable()) chain.push({ root: true });
+    return chain;
+  }
+
+  function windowOf(sc) {
+    if (sc.root) return { top: 0, bottom: window.innerHeight, left: 0, right: window.innerWidth };
+    const r = sc.node.getBoundingClientRect();
+    const top = r.top + sc.node.clientTop;
+    const left = r.left + sc.node.clientLeft;
+    return { top, bottom: top + sc.node.clientHeight, left, right: left + sc.node.clientWidth };
+  }
+
+  // The part of chain[i]'s window actually on screen: clipped by every
+  // scroller outside it and by the viewport.
+  function visibleWindow(chain, i) {
+    const w = { ...windowOf(chain[i]) };
+    const clips = chain.slice(i + 1).map(windowOf);
+    clips.push({ top: 0, bottom: window.innerHeight, left: 0, right: window.innerWidth });
+    for (const c of clips) {
+      w.top = Math.max(w.top, c.top);
+      w.bottom = Math.min(w.bottom, c.bottom);
+      w.left = Math.max(w.left, c.left);
+      w.right = Math.min(w.right, c.right);
+    }
+    return w.bottom > w.top && w.right > w.left ? w : null;
+  }
+
+  // Comfortably inside: a box that fits sits fully within the window, clear
+  // of the edges (where sticky bars live); one taller than that only needs
+  // its centre inside, since that is where a ref is clicked.
+  function comfortable(sub, win) {
+    const h = win.bottom - win.top;
+    const m = Math.min(40, h * 0.1);
+    if (sub.bottom - sub.top <= h - 2 * m) return sub.top >= win.top + m && sub.bottom <= win.bottom - m;
+    const c = (sub.top + sub.bottom) / 2;
+    return c >= win.top + m && c <= win.bottom - m;
+  }
+
+  function deepElementFromPoint(x, y) {
+    let el = document.elementFromPoint(x, y);
+    for (let i = 0; el && el.shadowRoot && i < 5; i++) {
+      const inner = el.shadowRoot.elementFromPoint(x, y);
+      if (!inner || inner === el) break;
+      el = inner;
+    }
+    return el;
+  }
+
+  // Would a wheel event at p, right now, end up scrolling sc?
+  function wheelReaches(sc, p, dir) {
+    for (let n = deepElementFromPoint(p.x, p.y); n; n = composedParent(n)) {
+      if (!sc.root && n === sc.node) return true;
+      if (n === document.documentElement) break;
+      if (n.tagName === "IFRAME" || n.tagName === "FRAME") {
+        if (frameMayScroll(n)) return false;
+        continue;
+      }
+      const cs = getComputedStyle(n);
+      if (isScrollerY(n, cs) && eatsWheel(n, dir, cs)) return false;
+    }
+    return !!sc.root;
+  }
+
+  // Every box inside sc that would take the wheel if it passed under the
+  // cursor while sc scrolls. Fixed-position ones don't move with sc, so they
+  // are either under the cursor already (and wheelReaches says no) or never.
+  function wheelObstacles(sc, dir) {
+    const out = [];
+    const stop = sc.root ? null : sc.node;
+    const movesWithSc = (n) => {
+      for (let a = n; a && a !== stop; a = composedParent(a)) {
+        if (getComputedStyle(a).position === "fixed") return false;
+      }
+      return true;
+    };
+    const visit = (scope) => {
+      for (const n of scope.querySelectorAll("*")) {
+        if (n.shadowRoot) visit(n.shadowRoot);
+        if (n.tagName === "IFRAME" || n.tagName === "FRAME") {
+          if (frameMayScroll(n) && movesWithSc(n)) out.push(n.getBoundingClientRect());
+          continue;
+        }
+        if (n.scrollHeight <= n.clientHeight + 1) continue;
+        const cs = getComputedStyle(n);
+        if (isScrollerY(n, cs) && eatsWheel(n, dir, cs) && movesWithSc(n)) out.push(n.getBoundingClientRect());
+      }
+    };
+    visit(sc.root ? document : sc.node);
+    return out;
+  }
+
+  // How far sc can scroll before one of those boxes reaches p. As sc scrolls
+  // by d, the content that was at p.y + d (down) or p.y - d (up) arrives
+  // under the cursor.
+  function wheelClearance(obstacles, p, dir) {
+    let clear = Infinity;
+    for (const r of obstacles) {
+      if (p.x < r.left || p.x > r.right) continue;
+      if (r.top <= p.y && r.bottom >= p.y) return 0; // under the cursor already
+      if (dir > 0 && r.top > p.y) clear = Math.min(clear, r.top - p.y);
+      if (dir < 0 && r.bottom < p.y) clear = Math.min(clear, p.y - r.bottom);
+    }
+    return clear;
+  }
+
+  function pickWheelPoint(sc, vis, dir, needPx, cursor, spots) {
+    const pts = [];
+    if (cursor && cursor.x >= vis.left && cursor.x < vis.right && cursor.y >= vis.top && cursor.y < vis.bottom) {
+      pts.push({ x: Math.round(cursor.x), y: Math.round(cursor.y) });
+    }
+    for (const [fx, fy] of spots) {
+      pts.push({
+        x: Math.round(vis.left + fx * (vis.right - vis.left)),
+        y: Math.round(vis.top + fy * (vis.bottom - vis.top))
+      });
+    }
+    const obstacles = wheelObstacles(sc, dir);
+    let best = null;
+    // The cursor comes first: where it already is costs no movement, so it is
+    // used whenever it works, as it would be by a person.
+    for (const p of pts) {
+      if (!wheelReaches(sc, p, dir)) continue;
+      const clear = wheelClearance(obstacles, p, dir);
+      if (clear <= 0) continue;
+      if (clear >= needPx) return { point: p, clear };
+      if (!best || clear > best.clear) best = { point: p, clear };
+    }
+    return best;
+  }
+
+  function refWheelPlan(refId, opts = {}) {
+    const el = resolveRef(refId);
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    const centre = [Math.round(r.x + r.width / 2), Math.round(r.y + r.height / 2)];
+    if (!r.width && !r.height) return { inView: false, centre, point: null, why: "element has no box" };
+    const perNotch = opts.perNotch || 100;
+    const aim = typeof opts.aim === "number" ? opts.aim : 0.45;
+    const chain = scrollChain(el);
+    // Wheel only where getRefCoordinates would otherwise have jumped (any part
+    // outside the viewport), plus a centre clipped away by a nested scroller,
+    // which it never handled. Anything already on screen is left exactly
+    // where it is — a sticky header near the top edge must not set the page
+    // scrolling just to be clicked.
+    const onScreen = r.left >= 0 && r.top >= 0 && r.right <= window.innerWidth && r.bottom <= window.innerHeight;
+    const clipped = chain.some((sc) => {
+      if (sc.root) return false;
+      const w = windowOf(sc);
+      return centre[0] < w.left || centre[0] > w.right || centre[1] < w.top || centre[1] > w.bottom;
+    });
+    if (onScreen && !clipped) return { inView: true, centre };
+    // The subject starts as the element. When the scroller it needs is not
+    // on screen enough to put a cursor on, the subject becomes that scroller,
+    // and the next one out brings it into view first.
+    let sub = { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
+    for (let i = 0; i < chain.length; i++) {
+      const win = windowOf(chain[i]);
+      const cx = (sub.left + sub.right) / 2;
+      if (cx < win.left || cx > win.right) return { inView: false, centre, point: null, why: "off-screen horizontally" };
+      if (comfortable(sub, win)) continue;
+      const vis = visibleWindow(chain, i);
+      if (!vis || vis.bottom - vis.top < Math.min((win.bottom - win.top) * 0.5, 120) || vis.right - vis.left < 40) {
+        sub = win;
+        continue;
+      }
+      const want = (sub.top + sub.bottom) / 2 - (vis.top + aim * (vis.bottom - vis.top));
+      const dir = want > 0 ? 1 : -1;
+      const needPx = Math.min(Math.abs(want), roomToScroll(chain[i], dir));
+      const needed = Math.round(needPx / perNotch);
+      if (needed < 1) {
+        // As close as whole notches get it. Fine if it can be clicked.
+        const c = (sub.top + sub.bottom) / 2;
+        if (c >= win.top && c <= win.bottom) continue;
+        return { inView: false, centre, point: null, why: "cannot scroll any further toward it" };
+      }
+      const pick = pickWheelPoint(chain[i], vis, dir, needed * perNotch, opts.cursor, opts.spots || []);
+      if (!pick) return { inView: false, centre, point: null, why: "no point over the scroller reaches it" };
+      return {
+        inView: false,
+        centre,
+        dir,
+        needed,
+        notches: Math.max(1, Math.min(needed, Math.floor(pick.clear / perNotch))),
+        point: pick.point,
+        scroller: chain[i].root ? "page" : describeBrief(chain[i].node)
+      };
+    }
+    // Every scroller is content. The viewport has the final say, for an
+    // element under a fixed ancestor whose chain never reached it.
+    const inView = centre[0] >= 0 && centre[1] >= 0 && centre[0] < window.innerWidth && centre[1] < window.innerHeight;
+    return inView ? { inView, centre } : { inView, centre, point: null, why: "nothing that scrolls would bring it into view" };
+  }
+
   // --- Message handler ---
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === "generateAccessibilityTree") {
@@ -616,6 +887,11 @@
     if (msg.type === "getRefCoordinates") {
       const result = getRefCoordinates(msg.ref, { scrollIntoView: msg.scrollIntoView });
       sendResponse({ result });
+      return true;
+    }
+
+    if (msg.type === "refWheelPlan") {
+      sendResponse({ result: refWheelPlan(msg.ref, msg) });
       return true;
     }
 
@@ -662,6 +938,7 @@
     findElements,
     setFormValue,
     getRefCoordinates,
+    refWheelPlan,
     resolveRef,
     elementMap,
   };
