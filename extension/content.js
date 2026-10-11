@@ -635,6 +635,15 @@
         el.tagName &&
         el.tagName.toLowerCase() === "input" &&
         (el.type || "").toLowerCase() === "file";
+      // Exactly one mark at a time: the background finds it with querySelector,
+      // which returns the first in document order, so a mark left behind by an
+      // earlier call that never unmarked (a service worker recycled mid-call)
+      // would be picked instead of this one.
+      try {
+        document
+          .querySelectorAll("[data-ocic-upload-target]")
+          .forEach((e) => e.removeAttribute("data-ocic-upload-target"));
+      } catch {}
       try { el.setAttribute("data-ocic-upload-target", "1"); } catch {}
       try { el.scrollIntoView({ block: "center", behavior: "instant" }); } catch {}
       sendResponse({ ok: true, isFileInput, tag: el.tagName.toLowerCase() });

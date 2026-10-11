@@ -43,6 +43,14 @@ export function extractMethod(name, file = BACKGROUND) {
   return src.slice(i, matchBraces(src, i)).trim();
 }
 
+/** Any braced statement starting at `head`, e.g. `if (msg.type === "x")`. */
+export function extractBlock(head, file = BACKGROUND) {
+  const src = fs.readFileSync(file, "utf8");
+  const i = src.indexOf(head);
+  if (i === -1) throw new Error(`${head} not found in ${file}`);
+  return src.slice(i, matchBraces(src, i));
+}
+
 /** Build a callable from extracted source with dependencies injected. */
 export function compile(source, deps, returnExpr) {
   const names = Object.keys(deps);

@@ -2306,6 +2306,7 @@ const toolHandlers = {
       return { content: [{ type: "text", text: `No element found for ref=${ref}. Re-run read_page/find to get a fresh ref.` }] };
     }
     if (!mark.isFileInput) {
+      await sendContentMessage(tabId, { type: "unmarkElementForUpload" }).catch(() => {});
       return { content: [{ type: "text", text: `Target ref=${ref} is a <${mark.tag}>, not a file input. Point at the <input type=file> element (read_page/find can locate hidden ones).` }] };
     }
 
