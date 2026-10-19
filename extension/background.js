@@ -1871,11 +1871,26 @@ const toolHandlers = {
     await ensureAttached(tabId);
     try {
       const tEval = Date.now();
-      const result = await cdp(tabId, "Runtime.evaluate", {
-        expression: text,
+      const evaluate = (expression, replMode) => cdp(tabId, "Runtime.evaluate", {
+        expression,
         returnByValue: true,
         awaitPromise: true,
+        replMode,
       });
+      // REPL semantics, as in the official extension: top-level await works and
+      // the last expression's value comes back. The block scopes const/let to
+      // this call, so the same name can be declared again on the next one.
+      let result = await evaluate(`{${text}\n}`, true);
+      // A body written with `return` fails to compile in REPL mode; run it once
+      // more as an async function body. Only a compile error qualifies: it
+      // carries the scriptId of the script that failed to compile, while an
+      // error thrown at runtime arrives through the rejected promise without
+      // one — and by then the code before it has already run.
+      const ex = result.exceptionDetails;
+      if (ex && ex.exception?.className === "SyntaxError" && ex.scriptId !== undefined && !ex.stackTrace &&
+          /Illegal return statement/.test(ex.exception.description || "")) {
+        result = await evaluate(`(async () => {\n${text}\n})()`, false);
+      }
       // preMs = group check + debugger attach; evalMs = the evaluate alone.
       // The split is the whole point: it separates "the renderer serviced the
       // task late" from every other stage of the pipe.
@@ -1884,8 +1899,11 @@ const toolHandlers = {
                      bytes: (text || "").length });
 
       if (result.exceptionDetails) {
+        // `text` is only "Uncaught"; the exception's description carries the
+        // error type, message and stack.
+        const d = result.exceptionDetails;
         return {
-          content: [{ type: "text", text: `Error: ${result.exceptionDetails.text || JSON.stringify(result.exceptionDetails)}` }],
+          content: [{ type: "text", text: `Error: ${d.exception?.description || d.text || JSON.stringify(d)}` }],
         };
       }
 

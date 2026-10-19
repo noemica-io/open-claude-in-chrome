@@ -301,7 +301,7 @@ export const TOOLS = [
       text: z
         .string()
         .describe(
-          "The JavaScript code to execute. The code will be evaluated in the page context. The result of the last expression will be returned automatically. Do NOT use 'return' statements - just write the expression you want to evaluate (e.g., 'window.myData.value' not 'return window.myData.value'). You can access and modify the DOM, call page functions, and interact with page variables."
+          "The JavaScript code to execute. Evaluated in the page context with REPL semantics: top-level `await` works, and the result of the last expression is returned automatically — write the expression you want (e.g. `window.myData.value`, or `await fetch(url).then(r => r.json())`) rather than `return ...`. You can access and modify the DOM, call page functions, and interact with page variables."
         ),
       tabId: z
         .number()
