@@ -36,6 +36,13 @@ function recordTiming(entry) {
   }
 }
 const attachedTabs = new Map(); // tabId -> { enabledDomains: Set }
+// Native JavaScript dialogs (alert/confirm/prompt/beforeunload) that are open
+// right now. While one is open the page's renderer is blocked, so nearly every
+// CDP command hangs until it is dismissed. Tracking it lets us fail fast with
+// the dialog's text instead of an opaque timeout. tabId -> { type, message, url, defaultPrompt }
+const pendingDialogs = new Map();
+// tabId -> Set<() => void>: in-flight commands to abort when a dialog opens.
+const dialogWaiters = new Map();
 const consoleMessages = new Map(); // tabId -> [{level, text, timestamp, url}]
 const networkRequests = new Map(); // tabId -> [{url, method, status, type, timestamp}]
 // tabId -> Map<requestId, record> — lets responseReceived augment the entry
@@ -351,6 +358,16 @@ async function ensureAttached(tabId) {
   const attach = (async () => {
     await chrome.debugger.attach({ tabId }, "1.3");
     attachedTabs.set(tabId, { enabledDomains: new Set() });
+  // Page.javascriptDialogOpening/Closed are only delivered once the Page domain
+  // is enabled. Best-effort and bounded: if a dialog is already open when we
+  // attach, the command may stall, and that must not fail the attach itself.
+  try {
+    await withTimeout(chrome.debugger.sendCommand({ tabId }, "Page.enable", {}), 3000, "CDP Page.enable");
+    attachedTabs.get(tabId).enabledDomains.add("Page");
+  } catch (e) {
+    dbg("cdp", "Page.enable FAILED — dialogs on this tab will not be reported",
+        { tab: tabId, err: String(e && e.message).slice(0, 120) });
+  }
   // No device-metrics emulation here. Screenshots get CSS-pixel framing from an
   // explicit capture clip instead (see takeScreenshot), which is more direct and
   // touches nothing about the page — no re-layout, no resize handlers fired.
@@ -409,6 +426,65 @@ async function ensureDomain(tabId, domain) {
   state.enabledDomains.add(domain);
 }
 
+// --- JavaScript dialogs -------------------------------------------------------
+// A page that calls alert()/confirm()/prompt() (or has a beforeunload prompt)
+// blocks its renderer until the dialog is answered. Every CDP command that
+// touches the page then hangs, which used to surface as a generic timeout with
+// no hint of the cause. We record the dialog from Page.javascriptDialogOpening
+// and report it, so the agent can see it and answer it with handle_dialog.
+
+function dialogError(tabId) {
+  const d = pendingDialogs.get(tabId);
+  const shown = String(d.message || "").slice(0, 500);
+  return new Error(
+    `A JavaScript ${d.type} dialog is open on tab ${tabId} and is blocking the page: ${JSON.stringify(shown)}. ` +
+    `Answer it with handle_dialog (action "accept" or "dismiss"), or ask the user to dismiss it in the browser. ` +
+    `The action that triggered it may already have been delivered.`
+  );
+}
+
+function noteDialogOpened(tabId, params) {
+  pendingDialogs.set(tabId, {
+    type: params.type || "alert",
+    message: params.message || "",
+    url: params.url || "",
+    defaultPrompt: params.defaultPrompt || "",
+  });
+  const waiters = dialogWaiters.get(tabId);
+  if (waiters) for (const abort of [...waiters]) abort();
+}
+
+function noteDialogClosed(tabId) {
+  pendingDialogs.delete(tabId);
+}
+
+// Throw before sending anything that would just hang behind an open dialog.
+// Answering the dialog itself is the one command that must still go through.
+function failIfDialogOpen(tabId, method) {
+  if (method !== "Page.handleJavaScriptDialog" && pendingDialogs.has(tabId)) {
+    throw dialogError(tabId);
+  }
+}
+
+// Settle `promise` as usual, but reject with the dialog description as soon as
+// a dialog opens while it is in flight (e.g. the click that opened it).
+function raceDialog(tabId, promise) {
+  let abort;
+  const opened = new Promise((_, reject) => {
+    abort = () => reject(dialogError(tabId));
+    let set = dialogWaiters.get(tabId);
+    if (!set) dialogWaiters.set(tabId, (set = new Set()));
+    set.add(abort);
+  });
+  return Promise.race([promise, opened]).finally(() => {
+    const set = dialogWaiters.get(tabId);
+    if (set) {
+      set.delete(abort);
+      if (set.size === 0) dialogWaiters.delete(tabId);
+    }
+  });
+}
+
 // A single CDP command must never hang a tool call to the 60s MCP timeout.
 // On a heavy page mid-reflow, Page.captureScreenshot (and other commands) can
 // block indefinitely; bound every command so a stuck one fails fast and
@@ -424,12 +500,16 @@ function withTimeout(promise, ms, label) {
 
 async function cdp(tabId, method, params = {}) {
   await ensureAttached(tabId);
+  failIfDialogOpen(tabId, method);
   const t0 = Date.now();
   try {
-    const out = await withTimeout(
-      chrome.debugger.sendCommand({ tabId }, method, params),
-      CDP_TIMEOUT_MS,
-      `CDP ${method}`
+    const out = await raceDialog(
+      tabId,
+      withTimeout(
+        chrome.debugger.sendCommand({ tabId }, method, params),
+        CDP_TIMEOUT_MS,
+        `CDP ${method}`
+      )
     );
     dbg("cdp", `${method}${cdpDetail(method, params)}`, { tab: tabId, ms: Date.now() - t0 });
     return out;
@@ -467,6 +547,8 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   networkRequests.delete(tabId);
   networkByRequestId.delete(tabId);
   cursorByTab.delete(tabId);
+  pendingDialogs.delete(tabId);
+  dialogWaiters.delete(tabId);
   // Drop any per-tab config override too: tab ids are recycled by the browser,
   // so a stale override would silently apply to an unrelated future tab.
   if (configState.byTab[String(tabId)]) {
@@ -480,11 +562,16 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 // Handle user dismissing debugger bar
 chrome.debugger.onDetach.addListener((source, reason) => {
   attachedTabs.delete(source.tabId);
+  // Detaching ends the session that reported the dialog; its state is stale.
+  pendingDialogs.delete(source.tabId);
 });
 
 // --- CDP event listeners for console and network ---
 chrome.debugger.onEvent.addListener((source, method, params) => {
   const tabId = source.tabId;
+
+  if (method === "Page.javascriptDialogOpening") noteDialogOpened(tabId, params || {});
+  if (method === "Page.javascriptDialogClosed") noteDialogClosed(tabId);
 
   if (method === "Console.messageAdded" && params.message) {
     const msgs = consoleMessages.get(tabId) || [];
@@ -757,6 +844,7 @@ const CHROME_INPUT_ACK_WAIT_MS = 50; // Chrome: acks instantly, a short window s
 
 async function sendMouseEvent(tabId, params, { awaitAck = true, noAck = false } = {}) {
   await ensureAttached(tabId);
+  failIfDialogOpen(tabId, "Input.dispatchMouseEvent");
   const t0 = Date.now();
   dbg("input", `${params.type}(${params.x},${params.y})${params.deltaY ? ` dy=${params.deltaY}` : ""}${noAck ? " noack" : awaitAck ? "" : " raced"}`,
       { tab: tabId, x: params.x, y: params.y });
@@ -786,7 +874,10 @@ async function sendMouseEvent(tabId, params, { awaitAck = true, noAck = false } 
     return;
   }
   if (awaitAck) {
-    await send; // serial-await path (required on Brave: press/release dropped if not awaited)
+    // serial-await path (required on Brave: press/release dropped if not awaited).
+    // A click that opens an alert never gets its ack until the dialog is
+    // answered, so report the dialog the moment it opens instead of waiting.
+    await raceDialog(tabId, send);
     return;
   }
   // Fire-and-forget path (mouseWheel, and Chrome mouseMoved): wait for the ack
@@ -2537,6 +2628,33 @@ const toolHandlers = {
   // or raises a window: automation drives background tabs, so the operator is
   // never yanked around as a side effect. This tool is the ONE way to surface
   // a tab, and it is the agent's judgement call when that is worth doing.
+  async handle_dialog(args) {
+    const { tabId, action, promptText } = args;
+    if (!(await isInGroup(tabId))) return { content: [{ type: "text", text: `Tab ${tabId} is not in the MCP group.` }] };
+    if (action !== "accept" && action !== "dismiss") {
+      return { content: [{ type: "text", text: `Invalid action ${JSON.stringify(action)}: use "accept" or "dismiss".` }] };
+    }
+    const dialog = pendingDialogs.get(tabId);
+    if (!dialog) {
+      return { content: [{ type: "text", text: `No JavaScript dialog is open on tab ${tabId}.` }] };
+    }
+    const accept = action === "accept";
+    await cdp(tabId, "Page.handleJavaScriptDialog", {
+      accept,
+      // promptText only means something when accepting a prompt() dialog.
+      ...(accept && typeof promptText === "string" ? { promptText } : {}),
+    });
+    noteDialogClosed(tabId);
+    return {
+      content: [
+        {
+          type: "text",
+          text: `${accept ? "Accepted" : "Dismissed"} the ${dialog.type} dialog on tab ${tabId}: ${JSON.stringify(String(dialog.message).slice(0, 500))}`
+        }
+      ]
+    };
+  },
+
   async set_tab_focus(args) {
     const { tabId, focus_window = false } = args;
     if (!(await isInGroup(tabId))) {

@@ -566,6 +566,29 @@ export const TOOLS = [
     }
   },
   {
+    name: "handle_dialog",
+    description:
+      "Answer a native JavaScript dialog (alert, confirm, prompt or beforeunload) that is blocking a tab. While one is open the page cannot be clicked, read or screenshotted, and other tools fail with an error that names the dialog and its text — that error is your cue to use this tool. Use \"dismiss\" for a plain alert or to cancel; \"accept\" presses OK. Treat confirm, prompt and beforeunload dialogs as decisions, not noise: they may ask the user to agree to something or discard unsaved work, so check with the user before accepting one you did not expect. If no dialog is open it simply says so.",
+    paramShape: {
+      tabId: z
+        .number()
+        .describe(
+          "Tab ID with the open dialog. Must be a tab in the current group. Use tabs_context_mcp if you don't have a valid tab ID."
+        ),
+      action: z
+        .enum(["accept", "dismiss"])
+        .describe(
+          "\"accept\" presses OK / confirms; \"dismiss\" presses Cancel / closes. An alert has only OK, so either action closes it."
+        ),
+      promptText: z
+        .string()
+        .optional()
+        .describe(
+          "Text to enter into a prompt() dialog. Only used with action \"accept\"; ignored for other dialog types."
+        )
+    }
+  },
+  {
     name: "upload_image",
     description:
       "Upload a previously captured screenshot (from the computer tool's screenshot action) to a file input. Identify the target with `ref` from read_page or find; the target must be an <input type=\"file\"> (especially useful for hidden inputs).",

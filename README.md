@@ -441,6 +441,7 @@ Every tool, its purpose, and its parity with the official Claude in Chrome exten
 | `execute_code` | Run sandboxed JS that drives every tool via `chrome.*` | |
 | `update_plan` | Present a plan for approval | |
 | `set_tab_focus` | Surface a tab: select it, optionally raise its window | |
+| `handle_dialog` | Accept or dismiss a native JS dialog (alert/confirm/prompt) that is blocking a tab | |
 | `get_config` | Read automation settings and the catalog of what they do | |
 | `set_config` | Change a setting, globally or for one tab | |
 | `recording_ack` | Confirm an imitation-learning recording event | |
