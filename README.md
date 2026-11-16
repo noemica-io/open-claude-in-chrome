@@ -539,6 +539,8 @@ Every tool, its purpose, and its parity with the official Claude in Chrome exten
 | `retranscribe_recording` | Re-run transcription for a failed recording | |
 | `debug` | Read what the extension actually did — the detail tool results omit | |
 | `debug_timings` | Per-call timing diagnostics | |
+| `workflow_save` | Save the flow just performed on a tab as a reusable, parameterized workflow | |
+| `workflow_run` | Replay a saved workflow in one call | |
 
 Notes on the divergences (✗):
 
@@ -546,6 +548,28 @@ Notes on the divergences (✗):
 - `upload_image` is file-input-only (target it by `ref`); Claude in Chrome additionally supports dropping an image at a `coordinate` (e.g. Google Docs).
 - `gif_creator`, `shortcuts_list`, and `shortcuts_execute` are stubs.
 - `switch_browser` releases the shared runtime for ~15s so another browser can take over, in place of Claude in Chrome's `list_connected_browsers` / `select_browser` pair.
+
+## Saved workflows
+
+A flow you repeat in a project (a login, a form you file every week) only needs
+the model in the loop the first time. Ask Claude to save it once it's done:
+
+```
+...and save this as a reusable workflow.
+```
+
+`workflow_save` keeps the successful actions from that tab (screenshots, reads
+and failed attempts are left out) in `.claude/ocic-workflows/` in the project,
+turning the values you name into parameters. Later sessions in that project see
+the saved workflows in the server instructions and run one with `workflow_run`:
+the whole flow in one call. Each step re-finds its element rather than trusting
+an old coordinate, waits until the page is where it was when recorded, and stops
+at the first step it cannot match, saying how far it got.
+
+On a 7-field helpdesk form, repeat runs took 7 turns instead of 29, 26s
+instead of 44s, and 70% less in cost, with every ticket verified correct (Sonnet,
+Firefox, 3 sessions each). Set `OCIC_WORKFLOWS=0` in the server's environment
+to turn this off.
 
 ## Humanized input
 

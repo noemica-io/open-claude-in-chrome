@@ -21,6 +21,8 @@ import net from "node:net";
 import { getPipePath } from "./endpoint.js";
 import { noteActivity } from "./parent-watch.js";
 import { startFirefoxWithAutomation } from "./firefox-launch.js";
+import { createWorkflows } from "./workflows.js";
+import { WORKFLOWS_ENABLED } from "./tool-definitions.js";
 
 const PIPE_PATH = getPipePath();
 
@@ -277,17 +279,40 @@ function textResult(text) {
  * Args are coerced (string→number/array) before the call so this is
  * safe to invoke directly with values straight off the MCP wire.
  */
+// One call to the extension, as an MCP result envelope. Not journaled: this is
+// also what workflow replay and its in-page probes go through.
+async function dispatch(toolName, args) {
+  try {
+    const result = await sendToExtension(toolName, coerceArgs(args ?? {}));
+    if (typeof result === "string") return textResult(result);
+    if (result && result.content) return result;
+    return textResult(JSON.stringify(result, null, 2));
+  } catch (err) {
+    return textResult(`Error: ${err.message}`);
+  }
+}
+
+const workflows = WORKFLOWS_ENABLED ? createWorkflows(dispatch) : null;
+
 export async function callTool(toolName, args) {
   noteActivity();
   try {
     // Handled here, not by the extension: it restarts the browser the
     // extension lives in.
     if (toolName === "restart_browser") return textResult(await restartBrowser());
+    if (workflows && toolName === "workflow_save") return textResult(workflows.save(coerceArgs(args ?? {})));
+    if (workflows && toolName === "workflow_run") return await workflows.run(coerceArgs(args ?? {}));
     const coerced = coerceArgs(args ?? {});
-    const result = await sendToExtension(toolName, coerced);
-    if (typeof result === "string") return textResult(result);
-    if (result && result.content) return result;
-    return textResult(JSON.stringify(result, null, 2));
+    const pre = workflows ? await workflows.before(toolName, coerced) : null;
+    const result = await dispatch(toolName, coerced);
+    if (workflows) {
+      workflows.after(toolName, coerced, result, pre);
+      if (toolName === "tabs_context_mcp" || toolName === "tabs_create_mcp") {
+        const note = workflows.listing();
+        if (note && result.content?.[0]?.type === "text") result.content[0].text += "\n\n" + note;
+      }
+    }
+    return result;
   } catch (err) {
     return textResult(`Error: ${err.message}`);
   }

@@ -9,7 +9,11 @@
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 
-export const TOOLS = [
+// Saved workflows (host/workflows.js). OCIC_WORKFLOWS=0 leaves them out
+// entirely: no workflow tools, no journal, no per-action page probe.
+export const WORKFLOWS_ENABLED = process.env.OCIC_WORKFLOWS !== "0";
+
+const ALL_TOOLS = [
   {
     name: "tabs_context_mcp",
     description:
@@ -614,6 +618,34 @@ export const TOOLS = [
     }
   },
   {
+    name: "workflow_save",
+    description:
+      "Save the browser actions you just performed on a tab as a named workflow for this project, so the next time the flow is needed it runs in ONE workflow_run call instead of step by step. Call it right after finishing a multi-step flow that is likely to be repeated (a form submission, a login, reaching a deep page, a multi-filter search). It keeps the successful actions on the tab since its last save or run; screenshots, reads and failed attempts are left out. Values that change between runs become params by example: params {title: \"Printer jam\"} turns every \"Printer jam\" in the flow into {{title}}. The response lists the saved steps; save again with drop to remove any that were exploration rather than the flow.",
+    paramShape: {
+      name: z.string().describe('Short name, e.g. "create-ticket".'),
+      description: z.string().describe("One line: what the workflow does and when to use it."),
+      tabId: z.number().describe("Tab the flow was performed on."),
+      params: z
+        .record(z.string())
+        .optional()
+        .describe("Values from THIS run that vary between runs, keyed by param name."),
+      drop: z
+        .array(z.number())
+        .optional()
+        .describe("Step numbers (from the list a previous save returned) to leave out.")
+    }
+  },
+  {
+    name: "workflow_run",
+    description:
+      "Run a saved workflow on a tab in one call. Saved workflows for this project are listed in the tabs_context_mcp result. Each step re-finds the element it used when recorded (waiting for it, scrolling it into view), so it survives layout changes; it stops at the first step it cannot match or that fails, and says how far it got so you can finish by hand. Returns a screenshot of the end state.",
+    paramShape: {
+      name: z.string().describe("Workflow name."),
+      tabId: z.number().describe("Tab to run it on."),
+      params: z.record(z.string()).optional().describe("Values for the workflow's params.")
+    }
+  },
+  {
     name: "file_upload",
     description:
       "Upload one or more local files (by absolute path) to a file input element on the page. Use read_page or find to locate the <input type=\"file\">, then pass its ref — do not click file inputs, which opens a native picker you cannot see. Each file must already exist on this machine (the same machine as the browser); the real path is passed straight to the browser, no staging. Keep the combined size of all files in a single call under ~10 MB.",
@@ -636,6 +668,8 @@ export const TOOLS = [
     }
   }
 ];
+
+export const TOOLS = ALL_TOOLS.filter((t) => WORKFLOWS_ENABLED || !t.name.startsWith("workflow_"));
 
 /**
  * Convert a tool's paramShape to a JSON Schema object suitable for

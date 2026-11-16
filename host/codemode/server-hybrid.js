@@ -26,7 +26,8 @@ import {
   installCleanup,
   SERVER_INSTRUCTIONS
 } from "./common.js";
-import { generateTsApi } from "../tool-definitions.js";
+import { generateTsApi, WORKFLOWS_ENABLED } from "../tool-definitions.js";
+import { savedWorkflowsNote } from "../workflows.js";
 import { onRecordingEvent } from "../tool-runtime.js";
 
 const NAMESPACE = "chrome";
@@ -160,7 +161,10 @@ async function main() {
         // notification is simply dropped.
         experimental: { "claude/channel": {} }
       },
-      instructions: SERVER_INSTRUCTIONS + RECORDER_INSTRUCTIONS
+      instructions:
+        SERVER_INSTRUCTIONS +
+        RECORDER_INSTRUCTIONS +
+        (WORKFLOWS_ENABLED && savedWorkflowsNote() ? "\n\n" + savedWorkflowsNote() : "")
     }
   );
 
