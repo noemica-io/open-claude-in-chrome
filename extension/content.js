@@ -582,8 +582,125 @@
     return `<${el.tagName.toLowerCase()}${id}${cls}>${t ? ` "${t}"` : ""}`;
   }
 
+  // --- Visible cursor overlay ---
+  // Purely cosmetic: shows where the debugger-dispatched mouse is. Lives in a
+  // shadow root with pointer-events:none so it can never intercept input or
+  // be hit by elementFromPoint-style checks.
+  //
+  // Motion follows how a hand moves a mouse, not a CSS ease:
+  //  - ARC: the path bows off the straight line (wrist/elbow pivot).
+  //  - MINIMUM JERK: bell-shaped speed, peaking a bit before the midpoint,
+  //    with a longer deceleration (aiming) than acceleration.
+  //  - SQUASH: the pointer compresses on press and springs back.
+  const CURSOR_IDLE_HIDE_MS = 3000;
+  let cursorHost = null, cursorEl = null, cursorRoot = null, cursorHideTimer = null;
+  let cur = null;        // rendered position {x,y}
+  let anim = null;       // active segment list
+  let pressAt = -1e9;    // performance.now() of last press
+  let rafId = 0;
+
+  function ensureCursor() {
+    if (cursorHost && cursorHost.isConnected) return;
+    cursorHost = document.createElement("div");
+    cursorHost.style.cssText =
+      "all:initial;position:fixed;inset:0;pointer-events:none;z-index:2147483647;";
+    cursorRoot = cursorHost.attachShadow({ mode: "closed" });
+    cursorRoot.innerHTML = `
+      <style>
+        .c{position:fixed;left:0;top:0;width:24px;height:24px;opacity:0;
+           transform-origin:3px 2px;transition:opacity .2s;
+           filter:drop-shadow(0 1px 2px rgba(0,0,0,.45));will-change:transform}
+        .c.on{opacity:1}
+        .r{position:fixed;width:12px;height:12px;margin:-6px 0 0 -6px;border-radius:50%;
+           border:2px solid #d97757;background:rgba(217,119,87,.25);
+           animation:p .45s ease-out forwards}
+        @keyframes p{to{transform:scale(3.2);opacity:0}}
+      </style>
+      <svg class="c" viewBox="0 0 24 24"><path d="M3 2l7.5 19 2.8-7.7L21 10.5z"
+        fill="#d97757" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
+    cursorEl = cursorRoot.querySelector(".c");
+    (document.documentElement || document.body).appendChild(cursorHost);
+  }
+
+  // Minimum-jerk position profile (10t^3 - 15t^4 + 6t^5), time-warped so the
+  // speed peak lands near t=0.4: quick launch, long homing-in.
+  const minJerk = (t) => { const u = t * t * t * (10 - 15 * t + 6 * t * t); return u; };
+  const warp = (t) => Math.pow(t, 0.85);
+
+  function render(now) {
+    let done = true;
+    if (anim) {
+      const seg = anim[0];
+      const t = Math.min(1, (now - seg.t0) / seg.dur);
+      const k = seg.ease(t);
+      // Cubic bezier along the arc.
+      const m = 1 - k;
+      cur = {
+        x: m*m*m*seg.p0.x + 3*m*m*k*seg.c1.x + 3*m*k*k*seg.c2.x + k*k*k*seg.p3.x,
+        y: m*m*m*seg.p0.y + 3*m*m*k*seg.c1.y + 3*m*k*k*seg.c2.y + k*k*k*seg.p3.y,
+      };
+      if (t >= 1) { anim.shift(); if (anim.length) anim[0].t0 = now; else anim = null; }
+      done = !anim;
+    }
+    // Squash: 1 -> 0.78 over 80ms, then spring back with a little overshoot.
+    const dt = now - pressAt;
+    let sc = 1;
+    if (dt < 80) sc = 1 - 0.22 * (dt / 80);
+    else if (dt < 320) { const u = (dt - 80) / 240; sc = 0.78 + 0.22 * (1 - Math.pow(1 - u, 3)) + 0.06 * Math.sin(u * Math.PI); done = false; }
+    if (cur) cursorEl.style.transform = `translate(${cur.x}px,${cur.y}px) scale(${sc})`;
+    rafId = done ? 0 : requestAnimationFrame(render);
+  }
+  function kick() { if (!rafId) rafId = requestAnimationFrame(render); }
+
+  function arcSeg(p0, p3, dur, ease, bow) {
+    const dx = p3.x - p0.x, dy = p3.y - p0.y, d = Math.hypot(dx, dy) || 1;
+    // Unit perpendicular; both control points offset the same way => an arc.
+    const nx = -dy / d, ny = dx / d, off = d * bow;
+    return {
+      p0, p3, dur, ease, t0: 0,
+      c1: { x: p0.x + dx * 0.25 + nx * off, y: p0.y + dy * 0.25 + ny * off },
+      c2: { x: p0.x + dx * 0.75 + nx * off * 0.7, y: p0.y + dy * 0.75 + ny * off * 0.7 },
+    };
+  }
+
+  function showCursor({ x, y, phase, glideMs, follow }) {
+    ensureCursor();
+    const target = { x, y };
+    const now = performance.now();
+    if (!cur || (!glideMs && !follow)) {
+      cur = target; anim = null;                 // first sighting / teleport
+    } else if (follow) {
+      // Humanized plans already draw a smooth path: track it 1:1.
+      anim = [{ p0: { ...cur }, p3: target, c1: cur, c2: target, dur: Math.max(16, glideMs), ease: (t) => t, t0: now }];
+    } else {
+      const from = { ...cur };
+      const side = Math.random() < 0.5 ? -1 : 1;
+      const bow = side * (0.05 + Math.random() * 0.07);
+      anim = [arcSeg(from, target, glideMs, (t) => minJerk(warp(t)), bow)];
+      anim[0].t0 = now;
+    }
+    cursorEl.classList.add("on");
+    if (phase === "press") {
+      pressAt = now;
+      const r = document.createElement("div");
+      r.className = "r";
+      r.style.left = x + "px";
+      r.style.top = y + "px";
+      cursorRoot.appendChild(r);
+      setTimeout(() => r.remove(), 500);
+    }
+    kick();
+    clearTimeout(cursorHideTimer);
+    cursorHideTimer = setTimeout(() => cursorEl && cursorEl.classList.remove("on"), CURSOR_IDLE_HIDE_MS);
+  }
+
   // --- Message handler ---
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (msg.type === "showCursor") {
+      showCursor(msg);
+      return false;
+    }
+
     if (msg.type === "generateAccessibilityTree") {
       const result = generateAccessibilityTree(msg.options || {});
       sendResponse({ result });
