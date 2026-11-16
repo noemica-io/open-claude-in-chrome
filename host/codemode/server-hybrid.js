@@ -27,7 +27,7 @@ import {
   SERVER_INSTRUCTIONS
 } from "./common.js";
 import { generateTsApi, WORKFLOWS_ENABLED } from "../tool-definitions.js";
-import { savedWorkflowsNote } from "../workflows.js";
+import { workflowInstructions } from "../workflows.js";
 import { onRecordingEvent } from "../tool-runtime.js";
 
 const NAMESPACE = "chrome";
@@ -164,7 +164,7 @@ async function main() {
       instructions:
         SERVER_INSTRUCTIONS +
         RECORDER_INSTRUCTIONS +
-        (WORKFLOWS_ENABLED && savedWorkflowsNote() ? "\n\n" + savedWorkflowsNote() : "")
+        (WORKFLOWS_ENABLED ? "\n\n" + workflowInstructions() : "")
     }
   );
 

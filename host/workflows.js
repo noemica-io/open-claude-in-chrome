@@ -138,6 +138,35 @@ const MUTATIONS = `(() => {
   return JSON.stringify(window[k].n + ':' + document.readyState);
 })()`;
 
+// The values a run will repeat verbatim: typed text, set values, and the
+// choices made among options (a radio, a menu item), whether clicked or set
+// with form_input. A value the saver forgot to name as a param ends up here,
+// which is how it gets noticed. Computed from the steps whenever it is shown,
+// so a file saved before a fix to this logic is still described correctly.
+function fixedValues(steps) {
+  const out = [];
+  const add = (v) => {
+    v = typeof v === "string" ? v.slice(0, 40) : v;
+    if (typeof v === "string" && v && !/\{\{\w+\}\}/.test(v) && !out.includes(v)) out.push(v);
+  };
+  const CHOICE = /^(radio|option|menuitem|menuitemradio|tab)$/;
+  const TOGGLE = /^(checkbox|switch|menuitemcheckbox)$/;
+  for (const s of steps) {
+    const a = s.anchor;
+    if (s.tool === "computer" && s.args.action === "type") add(s.args.text);
+    if (s.tool === "form_input") {
+      if (a?.kind === "ref" && CHOICE.test(a.role)) add(a.name);
+      else if (a?.kind === "ref" && TOGGLE.test(a.role)) add(`${a.name}: ${s.args.value}`);
+      else if (typeof s.args.value === "string") add(s.args.value);
+    }
+    if (a && s.tool === "computer" && CLICKS.has(s.args.action)) {
+      if (a.kind === "ref" && CHOICE.test(a.role)) add(a.name);
+      if (a.kind === "point" && /^(input|option|label)$/.test(a.tag) && a.text && a.text !== "on") add(a.text);
+    }
+  }
+  return out;
+}
+
 function list() {
   let files = [];
   try {
@@ -155,6 +184,20 @@ function list() {
 }
 
 
+// Standing guidance on WHEN to save. Without it, a model asked to file a ticket
+// filed it and stopped, even with "we do this regularly" in the prompt: nothing
+// in its context suggested a flow could be kept. It names the params rule
+// explicitly because the commonest bad save was a varying value left out.
+const SAVE_GUIDANCE =
+  "Browser workflows: when you finish a multi-step browser flow (roughly five or more actions) that this project is likely to need again — submitting a form, logging in and reaching a page, a search with several filters, a routine admin task — save it right away with workflow_save, without being asked. In params, name every value that could differ next time (each text you typed and each option you chose that came from the task), not just the obvious ones. Do not save one-off exploration, pure reading or lookups, or flows of only a couple of steps.";
+
+// Everything the server instructions say about workflows: when to save, and
+// what this project has already saved.
+export function workflowInstructions() {
+  const note = savedWorkflowsNote();
+  return SAVE_GUIDANCE + (note ? "\n\n" + note : "");
+}
+
 // The saved workflows for this project, as text for the model, or "" if none.
 // Shown in two places: the server instructions, which the model reads before it
 // plans anything, and the tabs_context_mcp result. The second alone proved too
@@ -167,7 +210,7 @@ export function savedWorkflowsNote() {
   return (
     "Saved browser workflows for this project — if the task is one of these, run it with workflow_run (one call) instead of repeating the steps:\n" +
     wfs.map((w) => `- ${w.name}${w.params.length ? `(${w.params.join(", ")})` : ""}: ${(w.description || `${w.steps.length} steps`).replace(/[.\s]*$/, ".")}` +
-      (w.fixed?.length ? ` Fixed in every run: ${w.fixed.map((v) => JSON.stringify(v)).join(", ")}.` : "")).join("\n")
+      (fixedValues(w.steps).length ? ` Fixed in every run: ${fixedValues(w.steps).map((v) => JSON.stringify(v)).join(", ")}.` : "")).join("\n")
   );
 }
 
@@ -306,26 +349,6 @@ export function createWorkflows(dispatch) {
     return `${i}. ${s.tool}`;
   }
 
-  // The values a run will repeat verbatim: typed text, set values, and the
-  // option-like elements clicked (a radio, a menu item). A value the saver
-  // forgot to name as a param ends up here, which is how it gets noticed.
-  function fixedValues(steps) {
-    const out = [];
-    const add = (v) => {
-      if (typeof v === "string" && v && !/\{\{\w+\}\}/.test(v) && !out.includes(v)) out.push(v.slice(0, 40));
-    };
-    for (const s of steps) {
-      if (s.tool === "computer" && s.args.action === "type") add(s.args.text);
-      if (s.tool === "form_input") add(String(s.args.value));
-      const a = s.anchor;
-      if (a && s.tool === "computer" && CLICKS.has(s.args.action)) {
-        if (a.kind === "ref" && /^(radio|option|menuitem|tab|checkbox|switch)/.test(a.role)) add(a.name);
-        if (a.kind === "point" && /^(input|option|label)$/.test(a.tag) && a.text && a.text !== "on") add(a.text);
-      }
-    }
-    return out;
-  }
-
   function save({ name, description = "", tabId, params = {}, drop = [] }) {
     if (!name) return "workflow_save needs a name.";
     const start = marks.get(tabId) ?? 0;
@@ -398,7 +421,7 @@ export function createWorkflows(dispatch) {
     if (unknown.length) {
       return { content: [{ type: "text", text:
         `Workflow "${wf.name}" has no param ${unknown.join(", ")}; nothing was run. Its params are: ${wf.params.join(", ") || "none"}. ` +
-        `Fixed in every run: ${(wf.fixed || []).map((v) => JSON.stringify(v)).join(", ") || "nothing"}. ` +
+        `Fixed in every run: ${fixedValues(wf.steps).map((v) => JSON.stringify(v)).join(", ") || "nothing"}. ` +
         `If the task needs a different value for one of those, do the flow by hand (and re-save it with that value as a param).` }] };
     }
 

@@ -14,7 +14,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 
 import { init, callTool, shutdown, coerceArgs } from "./tool-runtime.js";
 import { TOOLS, WORKFLOWS_ENABLED } from "./tool-definitions.js";
-import { savedWorkflowsNote } from "./workflows.js";
+import { workflowInstructions } from "./workflows.js";
 import { watchParent } from "./parent-watch.js";
 
 function exitClean(code = 0) {
@@ -37,10 +37,10 @@ watchParent(() => exitClean());
 
 await init();
 
-// The project's saved workflows go in the instructions, which the model reads
-// before it plans; see savedWorkflowsNote for why the tool-result copy is not
-// enough on its own.
-const workflowsNote = WORKFLOWS_ENABLED ? savedWorkflowsNote() : "";
+// When to save a workflow, and the project's saved ones, go in the
+// instructions, which the model reads before it plans; see savedWorkflowsNote
+// for why the tool-result copy is not enough on its own.
+const workflowsNote = WORKFLOWS_ENABLED ? workflowInstructions() : "";
 const server = new McpServer(
   { name: "open-claude-in-chrome", version: "1.0.0" },
   workflowsNote ? { instructions: workflowsNote } : undefined
