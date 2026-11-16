@@ -20,6 +20,7 @@ import net from "node:net";
 
 import { getPipePath } from "./endpoint.js";
 import { noteActivity } from "./parent-watch.js";
+import { startFirefoxWithAutomation } from "./firefox-launch.js";
 
 const PIPE_PATH = getPipePath();
 
@@ -50,8 +51,9 @@ const HOST_DROPPED_ERROR =
   "then repeat the action only if it did not happen.";
 
 const NO_BRIDGE_ERROR =
-  "Browser extension is not connected. Make sure a supported Chromium browser " +
-  "is running with the Open Claude in Chrome extension installed and enabled.";
+  "Browser extension is not connected. Make sure a supported browser (Chrome, Brave, " +
+  "Edge or another Chromium browser, or Firefox) is running with the Open Claude in " +
+  "Chrome extension installed and enabled.";
 
 // Unsolicited upstream events from the extension (not tool responses): the
 // imitation-learning recorder posts { type: "recording_complete", ... } when
@@ -171,7 +173,7 @@ function failPending() {
   pendingRequests.clear();
 }
 
-function sendToExtension(tool, args) {
+function sendToExtension(tool, args, type = "tool_request") {
   return new Promise((resolve, reject) => {
     const id = String(++requestIdCounter);
     const timer = setTimeout(() => {
@@ -181,7 +183,7 @@ function sendToExtension(tool, args) {
     const entry = { resolve, reject, timer, sent: false };
     pendingRequests.set(id, entry);
 
-    const line = JSON.stringify({ id, type: "tool_request", tool, args }) + "\n";
+    const line = JSON.stringify({ id, type, tool, args }) + "\n";
 
     if (linkIsUp()) {
       entry.sent = true;
@@ -218,6 +220,24 @@ export async function init() {
   if (started) return;
   started = true;
   connect();
+}
+
+// Start Firefox with its automation port, or restart it that way. With no
+// browser connected there is nothing to lose, so it just launches one. With one
+// connected, the host tells us which process it is and we replace it; the
+// caller is expected to have asked the user first (see the tool description).
+async function restartBrowser() {
+  let pid;
+  if (linkIsUp()) {
+    ({ pid } = await sendToExtension("browser_info", {}, "browser_info"));
+  }
+  const started = await startFirefoxWithAutomation({ pid });
+  // The new Firefox starts a new native host, which owns a new bridge; we
+  // reconnect on our own, so just wait for it to be usable.
+  const back = await waitForLink(30_000);
+  return started + (back
+    ? " The extension has reconnected; tools are ready."
+    : " The extension has not reconnected yet; retry in a few seconds.");
 }
 
 /**
@@ -260,6 +280,9 @@ function textResult(text) {
 export async function callTool(toolName, args) {
   noteActivity();
   try {
+    // Handled here, not by the extension: it restarts the browser the
+    // extension lives in.
+    if (toolName === "restart_browser") return textResult(await restartBrowser());
     const coerced = coerceArgs(args ?? {});
     const result = await sendToExtension(toolName, coerced);
     if (typeof result === "string") return textResult(result);

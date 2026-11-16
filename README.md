@@ -8,7 +8,7 @@
   <em>Official Claude in Chrome gives you 58 blocked domains and two browsers.<br/>
   <strong>Open Claude in Chrome gives you the whole web.</strong></em>
   <br/>
-  <sub>Clean-room reimplementation of Anthropic's browser extension. No blocklist. Any Chromium browser. 100% feature &amp; performance parity.</sub>
+  <sub>Clean-room reimplementation of Anthropic's browser extension. No blocklist. Any Chromium browser, or Firefox. 100% feature &amp; performance parity.</sub>
   <br/>
   <sub>by <a href="https://noemica.io">noemica</a></sub>
 </p>
@@ -41,7 +41,7 @@ The official [Claude in Chrome](https://code.claude.com/docs/en/chrome) extensio
 | | Claude in Chrome | Open Claude in Chrome |
 |---|---|---|
 | **Domain blocklist** | 58 blocked domains across 11 categories | No blocklist. Navigate anywhere. |
-| **Browser support** | Chrome and Edge only | Any Chromium browser (Chrome, Edge, Brave, Arc, Opera, Vivaldi, etc.) |
+| **Browser support** | Chrome and Edge only | Any Chromium browser (Chrome, Edge, Brave, Arc, Opera, Vivaldi, etc.), and Firefox 140+ |
 | **Source code** | Closed source | Open source (MIT) |
 | **Tools** | 21 MCP tools | Same 21 MCP tools |
 | **Performance** | Baseline | Identical |
@@ -138,7 +138,8 @@ One flow, top to bottom, turns everything on — all 21 browser tools,
 ### Prerequisites
 
 - **Node.js** v18+
-- **Any Chromium browser** (Chrome, Edge, Brave, Arc, Opera, Vivaldi, etc.)
+- **Any Chromium browser** (Chrome, Edge, Brave, Arc, Opera, Vivaldi, etc.), or
+  **Firefox 140+** (see [Firefox](#firefox))
 - **Claude Code** v2.1.80+ (the recorder needs channels; browser automation alone works on v2.0.73+)
 - **An OpenAI API key** (used to transcribe recording narration)
 
@@ -206,6 +207,47 @@ claude --dangerously-load-development-channels server:open-claude-in-chrome-hybr
 Accept the one-time prompt and keep the session open — channels inject into a
 live interactive session, not `claude -p`. That's it: browser automation and
 recording are both on.
+
+### Firefox
+
+Firefox 140+ is supported alongside Chromium browsers, with one structural
+difference: Firefox has no `chrome.debugger`, so page evaluation, screenshots and
+input go through the native host over [WebDriver BiDi](https://firefox-source-docs.mozilla.org/remote/Security.html)
+instead. That needs Firefox started with `--remote-debugging-port` (default 9222,
+override with `OCIC_FIREFOX_PORT`).
+
+Every browser tool works on Firefox. The recorder does not: it runs in an
+offscreen document, which Firefox lacks, so recording (the toolbar icon and
+`retranscribe_recording`) is Chromium-only.
+
+1. **Register the host.** `./install.sh` with no arguments registers Firefox only;
+   with Chromium IDs it does both. Firefox's extension ID is fixed
+   (`open-claude-in-chrome@hrideshmg.com`), so it needs no ID argument.
+2. **Install the extension.** For development, `about:debugging#/runtime/this-firefox`
+   → *Load Temporary Add-on…* → `extension/manifest.json`. A temporary add-on is
+   forgotten when Firefox closes, so for everyday use install a signed build:
+
+   ```bash
+   WEB_EXT_API_KEY=… WEB_EXT_API_SECRET=… \
+     nix run nixpkgs#web-ext -- sign --source-dir extension --channel unlisted --artifacts-dir /tmp/ocic-signed
+   ```
+
+   (or `npx web-ext sign …` without Nix; keys come from
+   addons.mozilla.org/developers/addon/api/key/). Then `about:addons` → ⚙ →
+   *Install Add-on From File…* and pick the `.xpi`. Each code change needs a
+   higher `version` in `manifest.json` and a new signing run.
+3. **Automation port.** If Firefox isn't running, `restart_browser` launches it
+   with the flag. If it's running without it, the click/type/screenshot/evaluate
+   tools tell Claude to ask you, and `restart_browser` then closes and reopens
+   Firefox with the flag (your tabs return only if Firefox is set to restore the
+   previous session).
+
+While automation is on, `navigator.webdriver` is `true` for every page in that
+Firefox, and any local process can reach the port. Firefox allows one BiDi session
+at a time, so it conflicts with other automation tools attached to the same
+browser; if that session is ever stranded, the tools say so and `restart_browser`
+clears it. Grant the extension its site access in `about:addons` → *Permissions*
+if pages report it can't run.
 
 ## Verification
 
@@ -437,7 +479,8 @@ Every tool, its purpose, and its parity with the official Claude in Chrome exten
 | `gif_creator` | GIF recording | ✗ |
 | `shortcuts_list` | List shortcuts | ✗ |
 | `shortcuts_execute` | Run a shortcut | ✗ |
-| `switch_browser` | Hand off automation to another Chromium browser | ✗ |
+| `switch_browser` | Hand off automation to another browser | ✗ |
+| `restart_browser` | Firefox: start or restart it with automation enabled (asks first) | |
 | `execute_code` | Run sandboxed JS that drives every tool via `chrome.*` | |
 | `update_plan` | Present a plan for approval | |
 | `set_tab_focus` | Surface a tab: select it, optionally raise its window | |

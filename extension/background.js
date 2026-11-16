@@ -92,6 +92,7 @@ async function detectBrowser() {
     if (navigator.brave && (await navigator.brave.isBrave?.())) return "Brave";
   } catch (e) {}
   const ua = navigator.userAgent || "";
+  if (/Firefox\//.test(ua)) return "Firefox";
   if (/Edg\//.test(ua)) return "Edge";
   const brands = (navigator.userAgentData?.brands || []).map((b) => b.brand).join(" ");
   if (/Brave/i.test(brands)) return "Brave";
@@ -133,12 +134,19 @@ function connectNativeHost() {
   }
   try {
     nativePort = chrome.runtime.connectNative(NATIVE_HOST_NAME);
+    // Firefox: a new host is a new BiDi session, with none of the old one's
+    // event subscriptions. Forget what was "attached" so the next tool call
+    // re-stamps the tab and re-enables the domains it needs.
+    if (!chrome.debugger) attachedTabs.clear();
 
     nativePort.onMessage.addListener((msg) => {
       // Heartbeat acks (and any other non-request server-originated messages)
       // are intentionally ignored here — only tool_request kicks work.
       if (msg.type === "tool_request" && msg.id) {
         handleToolRequest(msg.id, msg.tool, msg.args || {});
+      } else if (msg.type === "cdp_event") {
+        // Firefox: a BiDi event the host translated to its CDP equivalent.
+        handleCdpEvent(msg.tabId, msg.method, msg.params || {});
       } else if (msg.type === "recording_saved") {
         // Reply from the native host after writing a recording bundle to disk.
         const resolve = recorder.pendingSaves.get(String(msg.recording_id));
@@ -349,6 +357,15 @@ async function ensureAttached(tabId) {
   if (attachedTabs.has(tabId)) return;
   if (attachingTabs.has(tabId)) return attachingTabs.get(tabId);
   const attach = (async () => {
+    // Firefox has no chrome.debugger. There, CDP calls go to the native host,
+    // which translates them to WebDriver BiDi (see cdp() and host/cdp-bridge.js).
+    // "Attaching" is just stamping the tab so the host can find its BiDi
+    // context; none of the Chromium-only setup below applies.
+    if (!chrome.debugger) {
+      await stampTab(tabId);
+      attachedTabs.set(tabId, { enabledDomains: new Set() });
+      return;
+    }
     await chrome.debugger.attach({ tabId }, "1.3");
     attachedTabs.set(tabId, { enabledDomains: new Set() });
   // No device-metrics emulation here. Screenshots get CSS-pixel framing from an
@@ -405,7 +422,8 @@ async function ensureDomain(tabId, domain) {
   const state = attachedTabs.get(tabId);
   if (!state) throw new Error("Not attached to tab");
   if (state.enabledDomains.has(domain)) return;
-  await chrome.debugger.sendCommand({ tabId }, `${domain}.enable`, {});
+  // On Firefox the host turns this into a BiDi event subscription for the tab.
+  await cdpSend(tabId, `${domain}.enable`, {});
   state.enabledDomains.add(domain);
 }
 
@@ -422,12 +440,46 @@ function withTimeout(promise, ms, label) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
+// Firefox: tell the page which extension tab it is, so the native host can
+// match it to a WebDriver BiDi browsing context (which has its own ids).
+// Fails on pages extensions may not script (about:*, addons.mozilla.org).
+async function stampTab(tabId) {
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    world: "MAIN",
+    func: (id) => { window.__ocic_tab = id; },
+    args: [tabId],
+  });
+}
+
+// Firefox transport for cdp(): the native host executes the command over BiDi.
+// If the host cannot find the tab's context (host restarted, or the stamp was
+// lost), re-stamp once and retry.
+async function sendCdpViaHost(tabId, method, params) {
+  const send = () => nativeRequest({ type: "cdp", tabId, method, params });
+  try {
+    return await send();
+  } catch (e) {
+    if (!String(e && e.message).startsWith("TAB_UNMAPPED")) throw e;
+    await stampTab(tabId);
+    return send();
+  }
+}
+
+// The one place a CDP command leaves the extension: chrome.debugger on
+// Chromium, the native host (WebDriver BiDi) on Firefox.
+function cdpSend(tabId, method, params) {
+  return chrome.debugger
+    ? chrome.debugger.sendCommand({ tabId }, method, params)
+    : sendCdpViaHost(tabId, method, params);
+}
+
 async function cdp(tabId, method, params = {}) {
   await ensureAttached(tabId);
   const t0 = Date.now();
   try {
     const out = await withTimeout(
-      chrome.debugger.sendCommand({ tabId }, method, params),
+      cdpSend(tabId, method, params),
       CDP_TIMEOUT_MS,
       `CDP ${method}`
     );
@@ -477,14 +529,19 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   }
 });
 
-// Handle user dismissing debugger bar
-chrome.debugger.onDetach.addListener((source, reason) => {
+// Handle user dismissing debugger bar. chrome.debugger is absent on Firefox,
+// so the listeners are only registered where it exists.
+chrome.debugger?.onDetach.addListener((source, reason) => {
   attachedTabs.delete(source.tabId);
 });
 
 // --- CDP event listeners for console and network ---
-chrome.debugger.onEvent.addListener((source, method, params) => {
-  const tabId = source.tabId;
+// Chromium delivers these through chrome.debugger.onEvent; on Firefox the
+// native host translates WebDriver BiDi events into the same CDP shapes and
+// posts them as "cdp_event" messages (see connectNativeHost).
+chrome.debugger?.onEvent.addListener((source, method, params) => handleCdpEvent(source.tabId, method, params));
+
+function handleCdpEvent(tabId, method, params) {
 
   if (method === "Console.messageAdded" && params.message) {
     const msgs = consoleMessages.get(tabId) || [];
@@ -540,7 +597,7 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
       timestamp: (existing && existing.timestamp) || Date.now(),
     }));
   }
-});
+}
 
 // Append (or update) one entry for a network event, keyed by requestId.
 // makeRecord(existing) returns the fields to merge; when a record already
@@ -689,6 +746,13 @@ async function takeScreenshot(tabId) {
     base64 = await shot(28);
   }
 
+  // Firefox (WebDriver BiDi) has no clip scale, so its capture comes back at
+  // the display's pixel ratio. Resize to CSS pixels here instead, which gives
+  // the same coordinate space Chromium's clip.scale produces.
+  if (!chrome.debugger && clip && clip.scale !== 1) {
+    base64 = await resizeJpegBase64(base64, clip.width, clip.height, 0.45);
+  }
+
   // The coordinate space this image is in — the single fact that made screenshot
   // bugs invisible for so long. The response reports dimensions; it says nothing
   // about the pixel ratio the capture was rasterised at, the clip scale used to
@@ -710,6 +774,18 @@ async function takeScreenshot(tabId) {
   }
 
   return { base64, imageId };
+}
+
+async function resizeJpegBase64(base64, width, height, quality) {
+  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+  const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/jpeg" }));
+  const canvas = new OffscreenCanvas(Math.round(width), Math.round(height));
+  canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  const out = new Uint8Array(await (await canvas.convertToBlob({ type: "image/jpeg", quality })).arrayBuffer());
+  let bin = "";
+  for (let i = 0; i < out.length; i += 0x8000) bin += String.fromCharCode(...out.subarray(i, i + 0x8000));
+  return btoa(bin);
 }
 
 // Write a captured base64 screenshot to disk via the native host and resolve
@@ -761,7 +837,7 @@ async function sendMouseEvent(tabId, params, { awaitAck = true, noAck = false } 
   dbg("input", `${params.type}(${params.x},${params.y})${params.deltaY ? ` dy=${params.deltaY}` : ""}${noAck ? " noack" : awaitAck ? "" : " raced"}`,
       { tab: tabId, x: params.x, y: params.y });
   const send = withTimeout(
-    chrome.debugger.sendCommand({ tabId }, "Input.dispatchMouseEvent", params),
+    cdpSend(tabId, "Input.dispatchMouseEvent", params),
     CDP_TIMEOUT_MS,
     "CDP Input.dispatchMouseEvent",
   );
@@ -979,6 +1055,7 @@ async function writeConfig(key, value, tabId) {
  */
 async function dispatchPlan(tabId, plan, modifiers = 0) {
   await ensureAttached(tabId);
+  if (!chrome.debugger) return dispatchPlanViaHost(tabId, plan, modifiers);
   for (const step of plan) {
     switch (step.k) {
       case "sleep":
@@ -1038,6 +1115,51 @@ async function dispatchPlan(tabId, plan, modifiers = 0) {
       case "text":
         await cdp(tabId, "Input.insertText", { text: step.text });
         break;
+    }
+  }
+}
+
+// Firefox: the host runs each segment as one WebDriver BiDi action chain, with
+// the plan's sleeps as pauses inside it. Firefox only counts a double-click
+// whose presses share a chain, so a segment never ends while a button is held
+// or straight after a release (the next press may be click two). Otherwise a
+// long plan (humanized typing) is cut at a sleep every few seconds so no
+// single request outlives the command timeout.
+const PLAN_SEGMENT_MS = 3000;
+
+function planSegments(plan) {
+  const segments = [];
+  let current = [];
+  let ms = 0;
+  let held = false;
+  let last = null; // previous non-sleep step kind
+  for (const step of plan) {
+    if (step.k === "sleep" && ms >= PLAN_SEGMENT_MS && !held && last !== "up" && current.length) {
+      segments.push(current);
+      current = [];
+      ms = 0;
+    }
+    current.push(step);
+    if (step.k === "sleep") ms += step.ms;
+    else {
+      if (step.k === "down") held = true;
+      if (step.k === "up") held = false;
+      last = step.k;
+    }
+  }
+  if (current.length) segments.push(current);
+  return segments;
+}
+
+async function dispatchPlanViaHost(tabId, plan, modifiers) {
+  for (const segment of planSegments(plan)) {
+    await sendCdpViaHost(tabId, "Ocic.dispatchPlan", { plan: segment, modifiers });
+  }
+  // Same end state the step-by-step path leaves: the cursor where the plan put it.
+  for (let i = plan.length - 1; i >= 0; i--) {
+    if (plan[i].k === "move" || plan[i].k === "up") {
+      cursorByTab.set(tabId, { x: plan[i].x, y: plan[i].y });
+      break;
     }
   }
 }
@@ -2753,7 +2875,12 @@ function newRecordingId() {
   return "rec_" + Math.random().toString(36).slice(2, 10);
 }
 
+// The recorder runs in an offscreen document (mic, durable buffer, clipboard),
+// which Firefox does not have, so recording is Chromium-only.
+const RECORDER_UNAVAILABLE = "Recording isn't available on Firefox (it needs Chrome's offscreen documents).";
+
 async function ensureOffscreen() {
+  if (!chrome.offscreen) throw new Error(RECORDER_UNAVAILABLE);
   const has = await chrome.offscreen.hasDocument?.();
   if (has) return;
   await chrome.offscreen.createDocument({
@@ -2895,6 +3022,11 @@ async function broadcastRecordingState(on) {
 }
 
 async function startRecording() {
+  // Before any badge change: otherwise the "…" boot badge stays up for good.
+  if (!chrome.offscreen) {
+    chrome.action.setTitle({ title: RECORDER_UNAVAILABLE });
+    return { ok: false, error: RECORDER_UNAVAILABLE };
+  }
   // New transition: stale writers from any previous stop are dead from here.
   recorder.epoch++;
   if (resultClearTimer) {
@@ -3306,3 +3438,5 @@ async function recoverTabGroupState() {
 
 recoverTabGroupState();
 connectNativeHost();
+// The manifest's default tooltip offers recording, which Firefox can't do.
+if (!chrome.offscreen) chrome.action.setTitle({ title: `Open Claude in Chrome. ${RECORDER_UNAVAILABLE}` });

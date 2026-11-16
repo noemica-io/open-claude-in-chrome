@@ -2,35 +2,41 @@
 set -e
 
 # Install script for Open Claude in Chrome extension.
-# Registers the native messaging host for Chrome, Edge, and Brave on
+# Registers the native messaging host for Chrome, Edge, Brave and Firefox on
 # macOS, Linux, and Windows (run under Git Bash / MSYS2 / Cygwin).
 #
-# Usage: ./install.sh <extension-id> [extension-id-2] [extension-id-3] ...
+# Usage: ./install.sh [extension-id] [extension-id-2] ...
 #
-# Pass one extension ID per browser. Each Chromium browser assigns a different
-# ID when loading unpacked extensions, so if you use both Chrome and Brave,
-# pass both IDs.
+# Chromium browsers: pass one extension ID per browser. Each Chromium browser
+# assigns a different ID when loading unpacked extensions, so if you use both
+# Chrome and Brave, pass both IDs.
+#
+# Firefox: needs no ID. The extension has a fixed ID (FIREFOX_EXTENSION_ID,
+# from extension/manifest.json) and the host is registered for any Firefox
+# found. Run with no arguments to register Firefox only.
 
-if [ -z "$1" ]; then
-  echo "Usage: ./install.sh <extension-id> [extension-id-2] ..."
+if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+  echo "Usage: ./install.sh [extension-id] [extension-id-2] ..."
   echo ""
-  echo "Pass one extension ID per browser you want to use."
-  echo "Each browser assigns a different ID to the same unpacked extension."
-  echo ""
-  echo "Steps:"
+  echo "Chromium (Chrome, Brave, Edge, Chromium): pass one extension ID per browser."
   echo "  1. Open chrome://extensions (and/or brave://extensions)"
   echo "  2. Enable Developer Mode"
   echo "  3. Click 'Load unpacked' and select the extension/ directory"
   echo "  4. Copy the extension ID shown under the extension name"
   echo "  5. Repeat for each browser"
   echo "  6. Run: ./install.sh <chrome-id> <brave-id>"
-  exit 1
+  echo ""
+  echo "Firefox: no ID needed. Run ./install.sh (with or without Chromium IDs),"
+  echo "then load extension/manifest.json from about:debugging."
+  exit 0
 fi
 
 EXTENSION_IDS=("$@")
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 HOST_DIR="$SCRIPT_DIR/host"
 HOST_NAME="com.anthropic.open_claude_in_chrome"
+# Must match browser_specific_settings.gecko.id in extension/manifest.json.
+FIREFOX_EXTENSION_ID="open-claude-in-chrome@hrideshmg.com"
 
 # Platform detection. Windows is reached when the script runs under Git Bash,
 # MSYS2, or Cygwin (uname reports MINGW*/MSYS*/CYGWIN*).
@@ -91,6 +97,20 @@ generate_manifest() {
 EOF
 }
 
+# Firefox's host manifest differs from Chromium's: allowed_extensions (add-on
+# IDs) instead of allowed_origins.
+generate_firefox_manifest() {
+  cat << EOF
+{
+  "name": "$HOST_NAME",
+  "description": "Open Claude in Chrome Native Messaging Host",
+  "path": "$1",
+  "type": "stdio",
+  "allowed_extensions": ["$FIREFOX_EXTENSION_ID"]
+}
+EOF
+}
+
 # ---------------------------------------------------------------------------
 # macOS / Linux: a POSIX wrapper script + one manifest file per browser, in
 # that browser's NativeMessagingHosts directory.
@@ -108,6 +128,12 @@ WRAPPER
 install_host() {
   local browser_name="$1"
   local host_dir="$2"
+  local kind="${3:-chromium}"
+
+  # Chromium manifests need at least one extension ID to allow.
+  if [ "$kind" = "chromium" ] && [ ${#EXTENSION_IDS[@]} -eq 0 ]; then
+    return
+  fi
 
   if [ ! -d "$(dirname "$host_dir")" ]; then
     echo "  Skipping $browser_name (not installed)"
@@ -115,7 +141,11 @@ install_host() {
   fi
 
   mkdir -p "$host_dir"
-  generate_manifest "$(json_escape "$NATIVE_HOST_PATH")" > "$host_dir/$HOST_NAME.json"
+  if [ "$kind" = "firefox" ]; then
+    generate_firefox_manifest "$(json_escape "$NATIVE_HOST_PATH")" > "$host_dir/$HOST_NAME.json"
+  else
+    generate_manifest "$(json_escape "$NATIVE_HOST_PATH")" > "$host_dir/$HOST_NAME.json"
+  fi
   echo "  Installed for $browser_name: $host_dir/$HOST_NAME.json"
 }
 
@@ -143,18 +173,28 @@ install_windows() {
   printf '@echo off\r\n"%s" "%s" %%*\r\n' "$node_win" "$host_js_win" > "$bat_path"
   echo "Created native host wrapper: $bat_path"
 
-  # One manifest, referenced by every browser's registry key.
-  manifest_path="$HOST_DIR/$HOST_NAME.json"
   bat_win="$(cygpath -w "$bat_path")"
-  generate_manifest "$(json_escape "$bat_win")" > "$manifest_path"
-  MANIFEST_WIN="$(cygpath -w "$manifest_path")"
-  echo "Wrote manifest: $manifest_path"
 
   echo ""
   echo "Registering native messaging host in the registry (HKCU)..."
-  win_reg_add "Google Chrome" 'HKCU\Software\Google\Chrome\NativeMessagingHosts'
-  win_reg_add "Microsoft Edge" 'HKCU\Software\Microsoft\Edge\NativeMessagingHosts'
-  win_reg_add "Brave" 'HKCU\Software\BraveSoftware\Brave-Browser\NativeMessagingHosts'
+
+  # One Chromium manifest, referenced by every Chromium browser's registry key.
+  if [ ${#EXTENSION_IDS[@]} -gt 0 ]; then
+    manifest_path="$HOST_DIR/$HOST_NAME.json"
+    generate_manifest "$(json_escape "$bat_win")" > "$manifest_path"
+    MANIFEST_WIN="$(cygpath -w "$manifest_path")"
+    echo "Wrote manifest: $manifest_path"
+    win_reg_add "Google Chrome" 'HKCU\Software\Google\Chrome\NativeMessagingHosts'
+    win_reg_add "Microsoft Edge" 'HKCU\Software\Microsoft\Edge\NativeMessagingHosts'
+    win_reg_add "Brave" 'HKCU\Software\BraveSoftware\Brave-Browser\NativeMessagingHosts'
+  fi
+
+  # Firefox reads allowed_extensions, so it gets its own manifest.
+  manifest_path="$HOST_DIR/$HOST_NAME.firefox.json"
+  generate_firefox_manifest "$(json_escape "$bat_win")" > "$manifest_path"
+  MANIFEST_WIN="$(cygpath -w "$manifest_path")"
+  echo "Wrote manifest: $manifest_path"
+  win_reg_add "Firefox" 'HKCU\Software\Mozilla\NativeMessagingHosts'
 }
 
 # Point one browser's registry hive at the manifest. The // on reg's switches
@@ -171,7 +211,12 @@ win_reg_add() {
 }
 
 echo ""
-echo "Installing native messaging host for extension(s): ${EXTENSION_IDS[*]}"
+if [ ${#EXTENSION_IDS[@]} -gt 0 ]; then
+  echo "Installing native messaging host for Chromium extension(s): ${EXTENSION_IDS[*]}"
+else
+  echo "No Chromium extension ID given: registering Firefox only."
+fi
+echo "Firefox extension ID: $FIREFOX_EXTENSION_ID"
 echo ""
 
 case "$OS_KIND" in
@@ -183,6 +228,8 @@ case "$OS_KIND" in
       "$HOME/Library/Application Support/Microsoft Edge/NativeMessagingHosts"
     install_host "Brave Browser" \
       "$HOME/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts"
+    install_host "Firefox" \
+      "$HOME/Library/Application Support/Mozilla/NativeMessagingHosts" firefox
     ;;
   linux)
     create_unix_wrapper
@@ -206,6 +253,10 @@ case "$OS_KIND" in
       "$HOME/.var/app/com.microsoft.Edge/config/microsoft-edge/NativeMessagingHosts"
     install_host "Chromium (Flatpak)" \
       "$HOME/.var/app/org.chromium.Chromium/config/chromium/NativeMessagingHosts"
+    install_host "Firefox" \
+      "$HOME/.mozilla/native-messaging-hosts" firefox
+    install_host "Firefox (Flatpak)" \
+      "$HOME/.var/app/org.mozilla.firefox/.mozilla/native-messaging-hosts" firefox
     # Registering the manifest is necessary but not always sufficient under
     # Flatpak: the sandbox must also be allowed to launch the host wrapper,
     # which lives outside it. Only mention this when a Flatpak browser exists.

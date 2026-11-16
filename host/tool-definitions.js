@@ -463,7 +463,15 @@ export const TOOLS = [
   {
     name: "switch_browser",
     description:
-      "Hand off browser automation to a different Chromium browser (Chrome, Brave, Edge). One browser drives at a time. Calling this releases the current browser's hold on the shared runtime for ~15s so a target browser with this extension enabled can take over automatically (no restart). Tell the user to enable the extension in the target browser first. After calling, wait a few seconds and use tabs_context_mcp to confirm which browser is now active.",
+      "Hand off browser automation to a different browser (Chrome, Brave, Edge, Firefox). One browser drives at a time. Calling this releases the current browser's hold on the shared runtime for ~15s so a target browser with this extension enabled can take over automatically (no restart). Tell the user to enable the extension in the target browser first. After calling, wait a few seconds and use tabs_context_mcp to confirm which browser is now active.",
+    paramShape: {}
+  },
+  {
+    name: "restart_browser",
+    description:
+      "Firefox only: start Firefox with browser automation enabled, or restart it that way. Needed when a click/type/screenshot/evaluate tool reports that Firefox is not running with automation enabled. " +
+      "If Firefox is not running, this just launches it. If Firefox IS running, it is closed and reopened, which interrupts whatever the user is doing in it (open tabs only return if their Firefox restores the previous session). " +
+      "Never call it without first asking the user and getting a clear yes. Not needed for Chrome, Brave or Edge.",
     paramShape: {}
   },
   {
