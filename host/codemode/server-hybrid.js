@@ -80,6 +80,7 @@ const RECORDING_ACK_TOOL = {
 };
 
 const EXTRA_NOTES = `
+- The API above lists types only. Each \`chrome.<tool>()\` takes exactly the arguments of the top-level tool with the same name, and that tool's description documents what they mean.
 - A sibling \`computer\` tool is also exposed by this MCP server. Use it directly (not from inside \`execute_code\`) when you need to take a screenshot or zoom — image results are not visible from inside the sandbox.
 - For deterministic multi-step flows that don't need to look at images between steps (form fills, navigation, scraping, batched clicks), prefer \`execute_code\` to collapse the sequence into one round trip.
 - For single tool calls or steps that depend on observing an image, just call the underlying tool directly.`;
@@ -91,7 +92,9 @@ async function main() {
     await startCallbackServer(upstream);
 
   // Generate the TS API in-process — no /generate fetch, no wrangler needed.
-  const apiBlock = generateTsApi(upstreamTools, NAMESPACE);
+  // Types only: every tool is also exposed directly by this server, so its
+  // description is already in context there (see EXTRA_NOTES).
+  const apiBlock = generateTsApi(upstreamTools, NAMESPACE, { docs: false });
 
   const executeCodeTool = {
     name: "execute_code",

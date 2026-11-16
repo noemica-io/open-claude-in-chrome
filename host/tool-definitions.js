@@ -682,14 +682,14 @@ function escapeJsdoc(s) {
   return String(s).replace(/\*\//g, "*\\/");
 }
 
-function tsType(schema) {
+function tsType(schema, docs = true) {
   if (!schema || typeof schema !== "object") return "unknown";
   if (Array.isArray(schema.enum) && schema.enum.length > 0) {
     return schema.enum.map((v) => JSON.stringify(v)).join(" | ");
   }
   if (schema.const !== undefined) return JSON.stringify(schema.const);
   if (schema.anyOf || schema.oneOf) {
-    const variants = (schema.anyOf || schema.oneOf).map(tsType);
+    const variants = (schema.anyOf || schema.oneOf).map((v) => tsType(v, docs));
     return variants.join(" | ");
   }
   switch (schema.type) {
@@ -701,14 +701,14 @@ function tsType(schema) {
     case "boolean":
       return "boolean";
     case "array":
-      return `(${tsType(schema.items || {})})[]`;
+      return `(${tsType(schema.items || {}, docs)})[]`;
     case "object": {
       const required = new Set(schema.required || []);
       const props = schema.properties || {};
       const fields = Object.entries(props).map(([k, v]) => {
         const opt = required.has(k) ? "" : "?";
-        const doc = v && v.description ? `    /** ${escapeJsdoc(String(v.description).replace(/\s+/g, " "))} */\n    ` : "    ";
-        return `${doc}${k}${opt}: ${tsType(v)};`;
+        const doc = docs && v && v.description ? `    /** ${escapeJsdoc(String(v.description).replace(/\s+/g, " "))} */\n    ` : "    ";
+        return `${doc}${k}${opt}: ${tsType(v, docs)};`;
       });
       return `{\n${fields.join("\n")}\n}`;
     }
@@ -722,20 +722,27 @@ function tsType(schema) {
  * `tools` is a list of { name, description, inputSchema } records (the same
  * shape toolsAsJsonSchemaList() returns); `namespace` controls the binding
  * name (e.g. "chrome" → `declare const chrome: {...}`).
+ *
+ * `docs: false` emits types only, with no tool or parameter descriptions. For
+ * a server that also exposes every tool directly (hybrid), the descriptions
+ * are already in context on those tools, and repeating them here roughly
+ * quadrupled execute_code's description (~8k tokens → ~2k).
  */
-export function generateTsApi(tools, namespace = "codemode") {
+export function generateTsApi(tools, namespace = "codemode", { docs = true } = {}) {
   let types = "";
   let api = "";
   for (const t of tools) {
     const typeName = pascal(t.name);
-    const inputBody = tsType(t.inputSchema || { type: "object" });
+    const inputBody = tsType(t.inputSchema || { type: "object" }, docs);
     types += `\ntype ${typeName}Input = ${inputBody}`;
     types += `\ntype ${typeName}Output = unknown`;
 
-    const descLine = t.description
-      ? escapeJsdoc(String(t.description).replace(/\s+/g, " "))
-      : t.name;
-    api += `\n\t/**\n\t * ${descLine}\n\t */`;
+    if (docs) {
+      const descLine = t.description
+        ? escapeJsdoc(String(t.description).replace(/\s+/g, " "))
+        : t.name;
+      api += `\n\t/**\n\t * ${descLine}\n\t */`;
+    }
     api += `\n\t${t.name}: (input: ${typeName}Input) => Promise<${typeName}Output>;`;
     api += "\n";
   }
