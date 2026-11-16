@@ -168,11 +168,12 @@
     let charCount = 0;
     let truncated = false;
 
+    // Over the limit is an error, as the tool description promises, not a
+    // silently cut-off prefix: a truncated tree costs the caller the whole
+    // budget in tokens and still hides whatever came after the cut.
     function append(text) {
       if (truncated) return false;
       if (charCount + text.length > maxChars) {
-        output += text.substring(0, maxChars - charCount);
-        output += "\n... (truncated)";
         truncated = true;
         return false;
       }
@@ -181,6 +182,10 @@
       return true;
     }
 
+    // `depth` counts levels of the printed tree, not raw DOM nesting. Counting
+    // wrapper divs meant that on deeply nested apps (GitHub: median control
+    // depth 19) most of the page sat below the default limit and the
+    // interactive tree came back nearly empty.
     function walk(el, depth, indent) {
       if (truncated) return;
       if (depth > maxDepth) return;
@@ -190,20 +195,25 @@
       // Skip invisible, script, style, svg internals
       if (["script", "style", "noscript", "template"].includes(tag)) return;
 
-      const role = getRole(el);
-      const name = getAccessibleName(el);
       const interactive = isInteractive(el);
-      const visible = isVisible(el);
 
       // Filter: if interactive-only mode, skip non-interactive non-container elements
       const isContainer = el.children.length > 0;
       if (filter === "interactive" && !interactive && !isContainer) return;
 
+      // Role, name and (above all) visibility, which forces style resolution,
+      // are only worked out for elements that can be printed, so walking the
+      // full depth of a page stays cheap.
+      const needsLabel = filter === "all" || interactive;
+      const role = needsLabel ? getRole(el) : null;
+      const name = needsLabel ? getAccessibleName(el) : "";
+
       const shouldShow =
         (filter === "all" && (role || name)) ||
         (filter === "interactive" && interactive);
+      const visible = shouldShow && isVisible(el);
 
-      if (shouldShow && visible) {
+      if (visible) {
         const ref = getOrAssignRef(el);
         let line = `${indent}`;
 
@@ -233,14 +243,15 @@
       }
 
       // Recurse children (including shadow DOM)
-      const nextIndent = shouldShow && visible ? indent + "  " : indent;
+      const nextIndent = visible ? indent + "  " : indent;
+      const nextDepth = visible ? depth + 1 : depth;
       if (el.shadowRoot) {
         for (const child of el.shadowRoot.children) {
-          walk(child, depth + 1, nextIndent);
+          walk(child, nextDepth, nextIndent);
         }
       }
       for (const child of el.children) {
-        walk(child, depth + 1, nextIndent);
+        walk(child, nextDepth, nextIndent);
       }
     }
 
@@ -252,6 +263,19 @@
     }
 
     walk(root, 0, "");
+    if (truncated) {
+      // The hint depends on what was asked: a smaller depth barely helps the
+      // interactive tree, whose controls are mostly flat siblings.
+      const narrow = filter === "interactive"
+        ? `read one part of the page with ref_id (a ref from find or an earlier read_page)`
+        : `use filter: "interactive" for controls only, read one part of the page with ref_id ` +
+          `(a ref from find or an earlier read_page), or pass a smaller depth`;
+      return (
+        `Error: the accessibility tree (filter: "${filter}") exceeds the ${maxChars}-character limit. ` +
+        `To narrow it, ${narrow}. For the page's text use get_page_text. ` +
+        `If your client can take more, raise max_chars.`
+      );
+    }
     return output;
   }
 

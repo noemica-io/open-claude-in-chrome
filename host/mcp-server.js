@@ -13,7 +13,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
 import { init, callTool, shutdown, coerceArgs } from "./tool-runtime.js";
-import { TOOLS } from "./tool-definitions.js";
+import { TOOLS, WORKFLOWS_ENABLED } from "./tool-definitions.js";
+import { workflowInstructions } from "./workflows.js";
 import { watchParent } from "./parent-watch.js";
 
 function exitClean(code = 0) {
@@ -36,10 +37,14 @@ watchParent(() => exitClean());
 
 await init();
 
-const server = new McpServer({
-  name: "open-claude-in-chrome",
-  version: "1.0.0"
-});
+// When to save a workflow, and the project's saved ones, go in the
+// instructions, which the model reads before it plans; see savedWorkflowsNote
+// for why the tool-result copy is not enough on its own.
+const workflowsNote = WORKFLOWS_ENABLED ? workflowInstructions() : "";
+const server = new McpServer(
+  { name: "open-claude-in-chrome", version: "1.0.0" },
+  workflowsNote ? { instructions: workflowsNote } : undefined
+);
 
 // Coerce stringified args (tabId, coordinate, etc.) before zod validation
 // runs on tool-call requests. Some MCP clients serialize numbers/arrays

@@ -16,6 +16,8 @@ import {
   clearStaleSocket,
   secureSocket
 } from "./endpoint.js";
+import { BidiClient } from "./bidi.js";
+import { CdpBridge } from "./cdp-bridge.js";
 
 // --- Native messaging protocol (Chrome <-> this process) ---
 
@@ -176,7 +178,12 @@ function attachClient(socket, initialBuffer) {
       if (!line) continue;
       try {
         const msg = JSON.parse(line);
-        if (msg.type === "tool_request" && msg.id) {
+        if (msg.type === "browser_info" && msg.id) {
+          // Which process is the browser this host belongs to: the one that
+          // launched us. Lets a client restart it (restart_browser), which it
+          // cannot do through the browser itself.
+          socket.write(JSON.stringify({ id: msg.id, result: { pid: process.ppid } }) + "\n");
+        } else if (msg.type === "tool_request" && msg.id) {
           // Namespace the id so concurrent sessions cannot collide, and so a
           // response can be routed back to the one client that asked.
           const prefixedId = `h${clientId}_${msg.id}`;
@@ -402,6 +409,21 @@ function handleWriteTempFile(msg) {
   }
 }
 
+// --- CDP over WebDriver BiDi (Firefox) ---
+// Firefox has no chrome.debugger, so the extension sends its CDP calls here.
+// Nothing connects until the first one arrives, so Chromium sessions, which
+// never send "cdp", never touch Firefox's port.
+const cdpBridge = new CdpBridge(new BidiClient(), (tabId, method, params) =>
+  writeNativeMessage({ type: "cdp_event", tabId, method, params })
+);
+
+function handleCdp(msg) {
+  cdpBridge.handle(msg).then(
+    (result) => writeNativeMessage({ id: msg.id, ok: true, result }),
+    (e) => writeNativeMessage({ id: msg.id, ok: false, error: String((e && e.message) || e) })
+  );
+}
+
 // --- Main: bridge stdin (from extension) <-> the attached MCP clients ---
 
 let stdinBuffer = Buffer.alloc(0);
@@ -438,6 +460,10 @@ process.stdin.on("data", (chunk) => {
       handleWriteTempFile(msg);
       continue;
     }
+    if (msg && msg.type === "cdp") {
+      handleCdp(msg);
+      continue;
+    }
     // Everything else is a reply for a waiting MCP client; route it by id.
     routeFromExtension(msg);
   }
@@ -456,7 +482,19 @@ process.stdin.on("end", () => {
   try {
     pipeServer.close();
   } catch {}
-  process.exit(0);
+  exitAfterBidi();
+});
+
+// Firefox keeps a BiDi session alive after its socket closes, and allows only
+// one, so a host that exits holding it locks out the next host (see bidi.js).
+// End it first. Bounded well inside the 3s Firefox gives a host to exit after
+// closing its stdin; a no-op on Chromium, which never opens one.
+function exitAfterBidi() {
+  cdpBridge.client.end(1000).finally(() => process.exit(0));
+}
+process.on("SIGTERM", () => {
+  recordExit("SIGTERM");
+  exitAfterBidi();
 });
 
 // --- Deaf-extension watchdog ---
@@ -504,7 +542,7 @@ setInterval(() => {
     `(heartbeats seen: ${heartbeatsSeen}, clients: ${clients.size})`;
   process.stderr.write(`${reason} — exiting so a fresh host can take the bridge.\n`);
   recordExit(reason);
-  process.exit(0);
+  exitAfterBidi();
 }, 15_000).unref();
 
 claimPipe();
