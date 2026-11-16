@@ -777,15 +777,77 @@ async function takeScreenshot(tabId) {
 }
 
 async function resizeJpegBase64(base64, width, height, quality) {
+  return cropJpegBase64(base64, null, width, height, quality);
+}
+
+// Draw `src` (a rect in the image's own pixels, or null for the whole image)
+// into a width x height JPEG.
+async function cropJpegBase64(base64, src, width, height, quality) {
   const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
   const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/jpeg" }));
   const canvas = new OffscreenCanvas(Math.round(width), Math.round(height));
-  canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  const s = src || { x: 0, y: 0, width: bitmap.width, height: bitmap.height };
+  canvas.getContext("2d").drawImage(bitmap, s.x, s.y, s.width, s.height, 0, 0, canvas.width, canvas.height);
   bitmap.close();
   const out = new Uint8Array(await (await canvas.convertToBlob({ type: "image/jpeg", quality })).arrayBuffer());
   let bin = "";
   for (let i = 0; i < out.length; i += 0x8000) bin += String.fromCharCode(...out.subarray(i, i + 0x8000));
   return btoa(bin);
+}
+
+// The zoom action: a region of the viewport, magnified to fill at most one
+// screenshot's footprint, so a zoom never costs more image tokens than a
+// screenshot. The capture reuses takeScreenshot's whole-viewport clip at
+// (0, 0) and crops on a canvas, so the region is in exactly the coordinate
+// space the agent reads off screenshots. On Chromium the capture is rendered at
+// the magnified scale, giving real detail rather than upscaled pixels; Firefox
+// (WebDriver BiDi) has no clip scale and captures at the display's pixel ratio.
+const ZOOM_MAX_FACTOR = 4;
+const ZOOM_MAX_CAPTURE_PX = 4096;
+
+async function captureZoom(tabId, region) {
+  await ensureAttached(tabId);
+  const vp = await cdp(tabId, "Runtime.evaluate", {
+    expression: "JSON.stringify([innerWidth, innerHeight, devicePixelRatio])",
+    returnByValue: true
+  });
+  const [vw, vh, rawDpr] = JSON.parse(vp.result.value);
+  const dpr = rawDpr > 0 ? rawDpr : 1;
+
+  const [ax, ay, bx, by] = region.map(Number);
+  const x0 = Math.max(0, Math.min(ax, bx)), x1 = Math.min(vw, Math.max(ax, bx));
+  const y0 = Math.max(0, Math.min(ay, by)), y1 = Math.min(vh, Math.max(ay, by));
+  const w = x1 - x0, h = y1 - y0;
+  if (!(w >= 1 && h >= 1)) {
+    throw new Error(`region [${region.join(", ")}] has no area inside the ${vw}x${vh} viewport`);
+  }
+
+  const factor = Math.min(vw / w, vh / h, ZOOM_MAX_FACTOR);
+  // Chromium: the whole viewport, rendered at the magnified scale. Firefox:
+  // just the region (a BiDi clip box is viewport-relative by spec), because the
+  // capture comes back over native messaging, which caps a message at 1MB, and
+  // a full HiDPI viewport at zoom quality can exceed that.
+  const cap = chrome.debugger
+    ? { x: 0, y: 0, width: vw, height: vh, scale: Math.min(factor, ZOOM_MAX_CAPTURE_PX / vw) / dpr }
+    : { x: x0, y: y0, width: w, height: h, scale: 1 };
+  const shot = (await cdp(tabId, "Page.captureScreenshot", {
+    format: "jpeg", quality: 80, optimizeForSpeed: true, captureBeyondViewport: false, clip: cap
+  })).data;
+
+  // Measure the scale the capture actually came back at instead of assuming
+  // it: Firefox ignores clip.scale.
+  const bytes = Uint8Array.from(atob(shot), (c) => c.charCodeAt(0));
+  const probe = await createImageBitmap(new Blob([bytes], { type: "image/jpeg" }));
+  const r = probe.width / cap.width;
+  probe.close();
+
+  const outW = Math.max(1, Math.round(w * factor));
+  const outH = Math.max(1, Math.round(h * factor));
+  const src = { x: (x0 - cap.x) * r, y: (y0 - cap.y) * r, width: w * r, height: h * r };
+  const base64 = await cropJpegBase64(shot, src, outW, outH, 0.8);
+  dbg("cdp", `zoom [${x0},${y0},${x1},${y1}] of ${vw}x${vh} CSS px, dpr ${Math.round(dpr * 100) / 100}, ` +
+    `captured at ${Math.round(r * 100) / 100}x -> ${outW}x${outH} (${Math.round(factor * 100) / 100}x)`, { tab: tabId });
+  return { base64, rect: [x0, y0, x1, y1], factor, outW, outH, clamped: x0 !== Math.min(ax, bx) || y0 !== Math.min(ay, by) || x1 !== Math.max(ax, bx) || y1 !== Math.max(ay, by) };
 }
 
 // Write a captured base64 screenshot to disk via the native host and resolve
@@ -1865,24 +1927,36 @@ const toolHandlers = {
         if (!args.region || args.region.length !== 4) {
           return { content: [{ type: "text", text: "region [x0, y0, x1, y1] is required for zoom" }] };
         }
-        // Capture full screenshot then crop region
-        const { base64: fullBase64 } = await takeScreenshot(tabId);
-        // save_to_disk: write the captured image to disk and report the path.
+        let zoom;
+        try {
+          zoom = await captureZoom(tabId, args.region);
+        } catch (e) {
+          return { content: [{ type: "text", text: `Could not zoom: ${e.message}` }] };
+        }
+        // save_to_disk: write the zoomed image to disk and report the path.
         // Best-effort — never fails the zoom.
         let zoomSaveNote = "";
         if (args.save_to_disk) {
           try {
-            const path = await writeScreenshotToDisk(fullBase64);
+            const path = await writeScreenshotToDisk(zoom.base64);
             zoomSaveNote = `\nSaved to disk: ${path}`;
           } catch (e) {
             zoomSaveNote = `\n(Unable to save to disk: ${e.message})`;
           }
         }
-        // Return the full screenshot with region info — client can crop
+        const f = Math.round(zoom.factor * 100) / 100;
+        const [zx0, zy0] = zoom.rect;
+        // The image is magnified, so its pixels are not click coordinates; say
+        // how to map back rather than leave the agent to guess.
         return {
           content: [
-            { type: "text", text: `Zoom region: [${args.region.join(", ")}]${zoomSaveNote}` },
-            { type: "image", data: fullBase64, mimeType: "image/jpeg" },
+            {
+              type: "text",
+              text: `Zoomed region [${zoom.rect.join(", ")}]${zoom.clamped ? " (clipped to the viewport)" : ""} at ${f}x, ` +
+                `${zoom.outW}x${zoom.outH} image. Image pixels are not page coordinates: page x = ${zx0} + image x / ${f}, ` +
+                `page y = ${zy0} + image y / ${f}.${zoomSaveNote}`
+            },
+            { type: "image", data: zoom.base64, mimeType: "image/jpeg" },
           ],
         };
       }
