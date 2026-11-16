@@ -591,8 +591,6 @@
   //  - ARC: the path bows off the straight line (wrist/elbow pivot).
   //  - MINIMUM JERK: bell-shaped speed, peaking a bit before the midpoint,
   //    with a longer deceleration (aiming) than acceleration.
-  //  - OVERSHOOT + CORRECT: long moves run ~4% past the target, then settle
-  //    back (follow-through).
   //  - SQUASH: the pointer compresses on press and springs back.
   const CURSOR_IDLE_HIDE_MS = 3000;
   let cursorHost = null, cursorEl = null, cursorRoot = null, cursorHideTimer = null;
@@ -628,7 +626,6 @@
   // speed peak lands near t=0.4: quick launch, long homing-in.
   const minJerk = (t) => { const u = t * t * t * (10 - 15 * t + 6 * t * t); return u; };
   const warp = (t) => Math.pow(t, 0.85);
-  const easeOut = (t) => 1 - Math.pow(1 - t, 3);
 
   function render(now) {
     let done = true;
@@ -676,19 +673,10 @@
       // Humanized plans already draw a smooth path: track it 1:1.
       anim = [{ p0: { ...cur }, p3: target, c1: cur, c2: target, dur: Math.max(16, glideMs), ease: (t) => t, t0: now }];
     } else {
-      const from = { ...cur }, d = Math.hypot(x - from.x, y - from.y);
+      const from = { ...cur };
       const side = Math.random() < 0.5 ? -1 : 1;
       const bow = side * (0.05 + Math.random() * 0.07);
-      if (d > 160) {
-        const f = 1.03 + Math.random() * 0.03;   // overshoot 3-6% of distance
-        const over = { x: from.x + (x - from.x) * f, y: from.y + (y - from.y) * f };
-        anim = [
-          arcSeg(from, over, glideMs * 0.84, (t) => minJerk(warp(t)), bow),
-          arcSeg(over, target, glideMs * 0.16, easeOut, 0),
-        ];
-      } else {
-        anim = [arcSeg(from, target, glideMs, (t) => minJerk(warp(t)), bow)];
-      }
+      anim = [arcSeg(from, target, glideMs, (t) => minJerk(warp(t)), bow)];
       anim[0].t0 = now;
     }
     cursorEl.classList.add("on");
