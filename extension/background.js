@@ -467,6 +467,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   networkRequests.delete(tabId);
   networkByRequestId.delete(tabId);
   cursorByTab.delete(tabId);
+  lastShown.delete(tabId);
   // Drop any per-tab config override too: tab ids are recycled by the browser,
   // so a stale override would silently apply to an unrelated future tab.
   if (configState.byTab[String(tabId)]) {
@@ -755,8 +756,29 @@ function writeScreenshotToDisk(base64) {
 const INPUT_ACK_WAIT_MS = 250; // Brave: bounded wait for fire-and-forget (mouseWheel never acks)
 const CHROME_INPUT_ACK_WAIT_MS = 50; // Chrome: acks instantly, a short window suffices
 
+// Cosmetic cursor overlay (content.js). Fire-and-forget: a tab without the
+// content script (chrome://, PDF viewer, not yet injected) just shows nothing.
+const lastShown = new Map(); // tabId -> { x, y } where the overlay last was
+function glideMsFor(tabId, x, y) {
+  const p = lastShown.get(tabId);
+  if (!p) return 0;
+  // Fitts's-law shape: time grows with log of distance, not linearly.
+  const d = Math.hypot(x - p.x, y - p.y);
+  if (d < 4) return 0;
+  return Math.round(Math.min(650, 140 + 85 * Math.log2(d / 30 + 1)));
+}
+function showCursor(tabId, params, glideMs, follow = false) {
+  const phase = params.type === "mousePressed" ? "press" : params.type === "mouseMoved" ? "move" : null;
+  if (!phase || params.type === "mouseWheel") return;
+  chrome.tabs.sendMessage(tabId, { type: "showCursor", x: params.x, y: params.y, phase, glideMs, follow }).catch(() => {});
+  lastShown.set(tabId, { x: params.x, y: params.y });
+}
+
 async function sendMouseEvent(tabId, params, { awaitAck = true, noAck = false } = {}) {
   await ensureAttached(tabId);
+  // noAck moves come from humanized plans, which already draw a smooth path:
+  // follow them 1:1. Everything else teleports, so let the overlay glide.
+  showCursor(tabId, params, noAck ? 60 : glideMsFor(tabId, params.x, params.y), noAck);
   const t0 = Date.now();
   dbg("input", `${params.type}(${params.x},${params.y})${params.deltaY ? ` dy=${params.deltaY}` : ""}${noAck ? " noack" : awaitAck ? "" : " raced"}`,
       { tab: tabId, x: params.x, y: params.y });
@@ -848,7 +870,10 @@ async function mouseClick(tabId, x, y, opts = {}) {
     return;
   }
 
+  const glide = glideMsFor(tabId, x, y);
   await dispatchMouse(tabId, "mouseMoved", x, y, { modifiers });
+  // Let the visible cursor arrive before the click lands.
+  if (glide) await sleep(glide + 40);
   // Brave's debugger pipeline needs a ~50ms settle window between dispatched
   // events (verified empirically); Chrome acks instantly, so the sleeps are
   // pure latency there and are dropped to keep clicks snappy.
