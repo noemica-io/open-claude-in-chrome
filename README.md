@@ -1,11 +1,28 @@
-# Open Claude in Chrome
+<p align="center">
+  <img src="extension/icons/icon128.png" width="96" alt="Open Claude in Chrome">
+</p>
 
-A clean-room reimplementation of Anthropic's [Claude in Chrome](https://code.claude.com/docs/en/chrome)
-extension for Claude Code. It has the same 21 MCP tools, without the domain blocklist
-(banking, crypto, dating, Reddit, and about 50 more), and works in any Chromium browser
-or Firefox 140+.
+<h1 align="center">Open Claude in Chrome</h1>
 
-[Demo](https://youtu.be/n4-2fjOsGhw) · [How it was built](https://www.noemica.io/blog/reverse-engineered-claude-in-chrome) · [Benchmark](benchmark/writeup/writeup.md)
+<p align="center">
+  <em>Official Claude in Chrome gives you 58 blocked domains and two browsers.<br/>
+  <strong>Open Claude in Chrome gives you the whole web.</strong></em>
+  <br/>
+  <sub>Clean-room reimplementation of Anthropic's browser extension. No blocklist. Any Chromium browser, or Firefox. 100% feature &amp; performance parity.</sub>
+  <br/>
+  <sub>by <a href="https://noemica.io">noemica</a></sub>
+</p>
+
+<p align="center">
+  <a href="#tools">What's different</a> ·
+  <a href="#install">Install</a> ·
+  <a href="#recording">Imitation learning</a> ·
+  <a href="#architecture">Architecture</a> ·
+  <a href="https://youtu.be/n4-2fjOsGhw">Demo</a> ·
+  <a href="https://www.noemica.io/blog/reverse-engineered-claude-in-chrome">How I built it</a>
+</p>
+
+---
 
 On 12 tasks from the [REAL](https://github.com/agi-inc/REAL) benchmark, it is
 statistically indistinguishable from the official extension in turns and time, with
