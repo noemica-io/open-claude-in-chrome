@@ -26,8 +26,8 @@ if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
   echo "  5. Repeat for each browser"
   echo "  6. Run: ./install.sh <chrome-id> <brave-id>"
   echo ""
-  echo "Firefox: no ID needed. Run ./install.sh (with or without Chromium IDs),"
-  echo "then load extension/manifest.json from about:debugging."
+  echo "Firefox: no ID needed. Install the signed build (README: Installing on"
+  echo "Firefox), then run ./install.sh (with or without Chromium IDs)."
   exit 0
 fi
 

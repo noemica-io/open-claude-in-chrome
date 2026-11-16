@@ -133,13 +133,14 @@ The codemode and hybrid servers add a fourth piece — a `wrangler dev` subproce
 ## Installation
 
 One flow, top to bottom, turns everything on — all 21 browser tools,
-`execute_code`, and the imitation-learning recorder.
+`execute_code`, and the imitation-learning recorder. On Firefox, follow
+[Installing on Firefox](#installing-on-firefox) instead.
 
 ### Prerequisites
 
 - **Node.js** v18+
 - **Any Chromium browser** (Chrome, Edge, Brave, Arc, Opera, Vivaldi, etc.), or
-  **Firefox 140+** (see [Firefox](#firefox))
+  **Firefox 140+** (see [Installing on Firefox](#installing-on-firefox))
 - **Claude Code** v2.1.80+ (the recorder needs channels; browser automation alone works on v2.0.73+)
 - **An OpenAI API key** (used to transcribe recording narration)
 
@@ -208,46 +209,94 @@ Accept the one-time prompt and keep the session open — channels inject into a
 live interactive session, not `claude -p`. That's it: browser automation and
 recording are both on.
 
-### Firefox
+## Installing on Firefox
 
-Firefox 140+ is supported alongside Chromium browsers, with one structural
-difference: Firefox has no `chrome.debugger`, so page evaluation, screenshots and
-input go through the native host over [WebDriver BiDi](https://firefox-source-docs.mozilla.org/remote/Security.html)
-instead. That needs Firefox started with `--remote-debugging-port` (default 9222,
-override with `OCIC_FIREFOX_PORT`).
+Firefox 140 or later. Every browser tool works; the recorder does not, because
+it needs Chrome's offscreen documents, so recording (the toolbar icon and
+`retranscribe_recording`) stays Chromium-only.
 
-Every browser tool works on Firefox. The recorder does not: it runs in an
-offscreen document, which Firefox lacks, so recording (the toolbar icon and
-`retranscribe_recording`) is Chromium-only.
+One difference under the hood: Firefox has no `chrome.debugger`, so page
+evaluation, screenshots and input go through the native host over
+[WebDriver BiDi](https://firefox-source-docs.mozilla.org/remote/Security.html).
+Firefox only offers that when started with `--remote-debugging-port` (port 9222
+by default; set `OCIC_FIREFOX_PORT` to change it). Step 5 covers it.
 
-1. **Register the host.** `./install.sh` with no arguments registers Firefox only;
-   with Chromium IDs it does both. Firefox's extension ID is fixed
-   (`open-claude-in-chrome@hrideshmg.com`), so it needs no ID argument.
-2. **Install the extension.** For development, `about:debugging#/runtime/this-firefox`
-   → *Load Temporary Add-on…* → `extension/manifest.json`. A temporary add-on is
-   forgotten when Firefox closes, so for everyday use install a signed build:
+### Step 1: Install dependencies
+
+Same as [Step 1](#step-1-install-dependencies) above.
+
+### Step 2: Install the extension
+
+[**Download the latest Firefox build**](https://github.com/hrideshmg/open-claude-in-chrome/releases/latest/download/open-claude-in-chrome.xpi)
+and allow the install when Firefox asks (or save the file and use
+`about:addons` → ⚙ → *Install Add-on From File…*). The build is signed by
+Mozilla and updates itself when a new release comes out.
+
+If pages later report that the extension can't run on them, open `about:addons`
+→ *Open Claude in Chrome* → *Permissions* and allow access to all websites.
+
+### Step 3: Register native messaging
+
+```bash
+./install.sh
+```
+
+No extension ID needed: the Firefox build has a fixed ID
+(`open-claude-in-chrome@hrideshmg.com`). Passing Chromium IDs registers those
+browsers in the same run. Restart Firefox afterwards.
+
+### Step 4: Add the server to Claude Code
+
+Same as [Step 6](#step-6-add-the-server-to-claude-code) above.
+
+### Step 5: Turn on automation
+
+Firefox reads `--remote-debugging-port` only at startup. You don't have to
+manage that yourself: the first time a tool needs it, Claude asks you, and if
+you agree, `restart_browser` closes Firefox and reopens it with the flag. Your
+tabs come back only if Firefox restores the previous session (*Settings* →
+*General* → *Open previous windows and tabs*). To skip the restart, start
+Firefox yourself with `firefox --remote-debugging-port 9222`.
+
+While automation is on, `navigator.webdriver` is `true` for every page in that
+Firefox, and any local process can reach the port. Firefox allows one BiDi
+session at a time, so other automation tools attached to the same Firefox
+conflict with it; if that session is ever stranded, the tools say so and
+`restart_browser` clears it.
+
+### Publishing a Firefox build (maintainers)
+
+The native host only trusts the extension ID above, and only the AMO account
+that owns that ID can sign it, so every user installs the one build published
+here.
+
+1. Bump `version` in `extension/manifest.json`.
+2. Sign it (unlisted, so Mozilla signs without listing it on AMO; keys from
+   addons.mozilla.org/developers/addon/api/key/):
 
    ```bash
    WEB_EXT_API_KEY=… WEB_EXT_API_SECRET=… \
-     nix run nixpkgs#web-ext -- sign --source-dir extension --channel unlisted --artifacts-dir /tmp/ocic-signed
+     nix run nixpkgs#web-ext -- sign -s extension --channel unlisted -a /tmp/ocic-signed
    ```
 
-   (or `npx web-ext sign …` without Nix; keys come from
-   addons.mozilla.org/developers/addon/api/key/). Then `about:addons` → ⚙ →
-   *Install Add-on From File…* and pick the `.xpi`. Each code change needs a
-   higher `version` in `manifest.json` and a new signing run.
-3. **Automation port.** If Firefox isn't running, `restart_browser` launches it
-   with the flag. If it's running without it, the click/type/screenshot/evaluate
-   tools tell Claude to ask you, and `restart_browser` then closes and reopens
-   Firefox with the flag (your tabs return only if Firefox is set to restore the
-   previous session).
+   (`npx web-ext sign …` works without Nix.)
+3. Attach the `.xpi` to a release tagged `v<version>`, always named
+   `open-claude-in-chrome.xpi` so the download link above keeps pointing at
+   the newest build:
 
-While automation is on, `navigator.webdriver` is `true` for every page in that
-Firefox, and any local process can reach the port. Firefox allows one BiDi session
-at a time, so it conflicts with other automation tools attached to the same
-browser; if that session is ever stranded, the tools say so and `restart_browser`
-clears it. Grant the extension its site access in `about:addons` → *Permissions*
-if pages report it can't run.
+   ```bash
+   cp /tmp/ocic-signed/*-<version>.xpi /tmp/open-claude-in-chrome.xpi
+   gh release create v<version> /tmp/open-claude-in-chrome.xpi
+   ```
+
+4. Add the version to `updates.json` on `main`, linking to that release's
+   asset. Installed copies check it (via `update_url` in the manifest) and
+   update themselves.
+
+For development, load `extension/manifest.json` from
+`about:debugging#/runtime/this-firefox` → *Load Temporary Add-on…* instead.
+Firefox forgets temporary add-ons when it restarts, so `restart_browser` drops
+it too.
 
 ## Verification
 

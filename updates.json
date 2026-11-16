@@ -1,0 +1,12 @@
+{
+  "addons": {
+    "open-claude-in-chrome@hrideshmg.com": {
+      "updates": [
+        {
+          "version": "1.0.2",
+          "update_link": "https://github.com/hrideshmg/open-claude-in-chrome/releases/download/v1.0.2/open-claude-in-chrome.xpi"
+        }
+      ]
+    }
+  }
+}

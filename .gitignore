@@ -3,8 +3,9 @@ host/native-host-wrapper.sh
 host/native-host-wrapper.bat
 host/com.anthropic.open_claude_in_chrome.json
 host/com.anthropic.open_claude_in_chrome.firefox.json
-# written by `web-ext sign`
+# written by `web-ext sign`, and its signed builds
 extension/.amo-upload-uuid
+*.xpi
 .env
 *.log
 .DS_Store

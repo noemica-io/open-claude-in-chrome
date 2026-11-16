@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Open Claude in Chrome",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Claude in Chrome, open source. No domain blocklist. Any Chromium browser, or Firefox.",
   "minimum_chrome_version": "116",
   "permissions": [
@@ -62,6 +62,7 @@
     "gecko": {
       "id": "open-claude-in-chrome@hrideshmg.com",
       "strict_min_version": "140.0",
+      "update_url": "https://raw.githubusercontent.com/hrideshmg/open-claude-in-chrome/main/updates.json",
       "data_collection_permissions": {
         "required": [
           "none"
